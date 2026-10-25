@@ -75,8 +75,14 @@ body {
   .glass { background: rgb(15 23 42 / 0.72); }
 }
 
-.brand-gradient { background-image: linear-gradient(135deg in oklab, #25d366, #059669 55%, #065f46); }
+/* Plain gradient first: browsers without `in oklab` drop the second declaration and keep this one. */
+.brand-gradient {
+  background-color: #059669;
+  background-image: linear-gradient(135deg, #25d366, #059669 55%, #065f46);
+  background-image: linear-gradient(135deg in oklab, #25d366, #059669 55%, #065f46);
+}
 .text-gradient {
+  background-image: linear-gradient(90deg, #059669, #25d366);
   background-image: linear-gradient(90deg in oklab, #059669, #25d366);
   -webkit-background-clip: text;
   background-clip: text;
@@ -84,12 +90,13 @@ body {
 }
 
 .skeleton {
+  background-color: var(--color-gray-100);
   background-image: linear-gradient(90deg in oklab, var(--color-gray-100) 25%, var(--color-gray-200) 37%, var(--color-gray-100) 63%);
   background-size: 400% 100%;
   animation: var(--animate-shimmer);
 }
 @media (prefers-color-scheme: dark) {
-  .skeleton { background-image: linear-gradient(90deg in oklab, var(--color-gray-800) 25%, var(--color-gray-700) 37%, var(--color-gray-800) 63%); }
+  .skeleton { background-color: var(--color-gray-800); background-image: linear-gradient(90deg in oklab, var(--color-gray-800) 25%, var(--color-gray-700) 37%, var(--color-gray-800) 63%); }
 }
 
 /* ---------- native <dialog> modal with top-layer enter/exit transitions ---------- */
