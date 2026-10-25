@@ -74,6 +74,12 @@ Note: Vercel's Hobby plan is for non-commercial use. Use Pro for a live business
 
 Don't use free instances. They sleep, so webhooks arrive late and reminders and reports don't run on time. Free Postgres databases also expire.
 
+## Admin login
+
+- The **super admin** is created automatically on first startup from `SUPER_ADMIN_EMAIL` and `SUPER_ADMIN_PASSWORD`. Sign in at `https://YOUR-DOMAIN/login`; a **Super admin** item appears at the bottom of the menu.
+- Changing `SUPER_ADMIN_PASSWORD` later does **not** change the password. To reset it: set the new password, add `SUPER_ADMIN_RESET_PASSWORD=true`, redeploy, open the site once, then **remove** `SUPER_ADMIN_RESET_PASSWORD` and redeploy again.
+- Store owners create their own accounts with **Create an account** on the login page (turn this off with `ALLOW_SIGNUP=false`). Owners add their team under **Team & logs**.
+
 ## Setup per store (in the portal)
 
 1. **Stores → Connect store**. Either:

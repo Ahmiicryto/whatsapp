@@ -26,6 +26,7 @@ const schema = z.object({
 
   SUPER_ADMIN_EMAIL: z.string().optional(),
   SUPER_ADMIN_PASSWORD: z.string().optional(),
+  SUPER_ADMIN_RESET_PASSWORD: bool(false),
 
   SHOPIFY_API_KEY: z.string().optional(),
   SHOPIFY_API_SECRET: z.string().optional(),
@@ -84,7 +85,7 @@ export const config = {
   encryptionKey: env.ENCRYPTION_KEY,
   runWorkerInProcess: env.RUN_WORKER_IN_PROCESS,
   allowSignup: env.ALLOW_SIGNUP,
-  superAdmin: { email: env.SUPER_ADMIN_EMAIL, password: env.SUPER_ADMIN_PASSWORD },
+  superAdmin: { email: env.SUPER_ADMIN_EMAIL, password: env.SUPER_ADMIN_PASSWORD, resetPassword: env.SUPER_ADMIN_RESET_PASSWORD },
   shopify: {
     apiKey: env.SHOPIFY_API_KEY,
     apiSecret: env.SHOPIFY_API_SECRET,
