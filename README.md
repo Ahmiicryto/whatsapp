@@ -41,7 +41,7 @@ Vercel runs the app as one serverless function (`api/index.js`) plus the static 
 - **Every minute, from a scheduler** calling `/api/cron/tick`. This handles delayed work: reminders, no-response timeouts, campaigns, reports, retries and order reconciliation.
 
 Steps:
-1. **Create a Postgres database.** Add **Neon** from the Vercel Marketplace (Storage → Neon), or use Supabase. Use the **pooled** connection string as `DATABASE_URL` and set `DATABASE_SSL=true`.
+1. **Create a Postgres database.** In your Vercel project open **Storage → Create Database → Neon** (free tier available) and connect it to the project. Vercel then adds `DATABASE_URL` (or `POSTGRES_URL`) for you; either works. If you use Supabase or Neon directly instead, copy the **pooled** connection string into `DATABASE_URL`. Also set `DATABASE_SSL=true`. You don't need to create tables: they're created automatically on the first request.
 2. **Import the repo** in Vercel (Add New → Project). Leave the framework preset as "Other"; `vercel.json` sets the install and build commands, output folder, function, rewrites and cron.
 3. **Add environment variables** (Project → Settings → Environment Variables):
    - `DATABASE_URL`, `DATABASE_SSL=true`. Don't set `NODE_ENV`: Vercel sets it at runtime.

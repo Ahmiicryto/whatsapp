@@ -16,7 +16,8 @@ const schema = z.object({
   VERCEL_PROJECT_PRODUCTION_URL: z.string().optional(),
   CRON_SECRET: z.string().optional(),
   DB_POOL_MAX: z.coerce.number().optional(),
-  DATABASE_URL: z.string().default("postgres://localhost:5432/wa_commerce"),
+  DATABASE_URL: z.string().optional(),
+  POSTGRES_URL: z.string().optional(), // name used by some Vercel storage integrations
   DATABASE_SSL: bool(false),
   SESSION_SECRET: z.string().default("dev-session-secret-change-me"),
   ENCRYPTION_KEY: z.string().optional(),
@@ -77,7 +78,7 @@ export const config = {
   serverless: !!env.VERCEL,
   cronSecret: env.CRON_SECRET,
   dbPoolMax: env.DB_POOL_MAX ?? (env.VERCEL ? 3 : 10),
-  databaseUrl: env.DATABASE_URL,
+  databaseUrl: env.DATABASE_URL || env.POSTGRES_URL || "postgres://localhost:5432/wa_commerce",
   databaseSsl: env.DATABASE_SSL,
   sessionSecret: env.SESSION_SECRET,
   encryptionKey: env.ENCRYPTION_KEY,
@@ -116,7 +117,7 @@ config.missingEnv = [];
 if (config.isProd) {
   if (!config.encryptionKey) config.missingEnv.push("ENCRYPTION_KEY");
   if (config.sessionSecret === "dev-session-secret-change-me") config.missingEnv.push("SESSION_SECRET");
-  if (!process.env.DATABASE_URL) config.missingEnv.push("DATABASE_URL");
+  if (!env.DATABASE_URL && !env.POSTGRES_URL) config.missingEnv.push("DATABASE_URL");
   if (config.missingEnv.length) {
     console.error(`Missing required production env vars: ${config.missingEnv.join(", ")}`);
     if (!config.serverless) process.exit(1);
