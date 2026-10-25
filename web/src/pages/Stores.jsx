@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useApi, get, post } from "../lib/api.js";
+import { useApi, post } from "../lib/api.js";
 import { useSession } from "../lib/session.jsx";
 import { ago } from "../lib/format.js";
 import { Card, Badge, Button, PageHeader, Modal, Field, Input, Tabs, Empty, ErrorBox, useAction } from "../components/ui.jsx";
@@ -16,8 +16,10 @@ function ConnectModal({ onClose, onDone, oauth }) {
     setError(null);
     try {
       if (tab === "oauth") {
-        const r = await get(`/shopify/install?shop=${encodeURIComponent(f.shopDomain)}`);
-        window.location.href = r.url;
+        let shop = f.shopDomain.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+        if (shop && !shop.includes(".")) shop = `${shop}.myshopify.com`;
+        // Signed in, so the store links to this account automatically after approving in Shopify.
+        window.location.href = `/shopify/install?shop=${encodeURIComponent(shop)}`;
         return;
       }
       const store = await post("/stores", f);
@@ -98,6 +100,20 @@ export default function Stores() {
           </Card>
         ))}
       </div>
+      {me?.features?.shopifyOAuth && can("admin") && (
+        <Card title="Install link for your stores">
+          <p className="mb-2 text-sm text-gray-500">
+            Open this link (or share it with a store owner), enter the store name and approve in Shopify: the store is linked automatically.
+            Installing from the Shopify install link works the same way.
+          </p>
+          <div className="flex gap-2">
+            <Input readOnly value={`${window.location.origin}/install`} onFocus={(e) => e.target.select()} />
+            <Button variant="secondary" onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/install`)}>
+              Copy
+            </Button>
+          </div>
+        </Card>
+      )}
       <Card title="Add another business">
         <p className="mb-2 text-sm text-gray-500">Run a separate business with its own team and stores under the same login.</p>
         <div className="flex gap-2">

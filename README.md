@@ -82,13 +82,22 @@ Don't use free instances. They sleep, so webhooks arrive late and reminders and 
 
 ## Setup per store (in the portal)
 
-1. **Stores → Connect store**. Either:
-   - **Install app (OAuth)**: needs `SHOPIFY_API_KEY`/`SECRET`, a Shopify app created in the Shopify Dev Dashboard with redirect URL `APP_BASE_URL/shopify/callback`, and compliance webhooks pointed at `APP_BASE_URL/webhooks/shopify/compliance`.
-   - **Custom app token**: paste the store's Admin API token (`shpat_…`) and the app's API secret key. Required scopes:
-     `read_orders, write_orders, read_customers, write_customers, read_products, read_fulfillments, read_checkouts, write_discounts, write_order_edits`.
-   - In the app, request **protected customer data** access for name, phone, email and address. Without it, webhooks arrive with no phone number.
+1. **Connect Shopify (one-time app setup, then one click per store).**
+   - In the **Shopify Dev Dashboard** (dev.shopify.com), create an app and set:
+     - **App URL:** `https://YOUR-DOMAIN/shopify/install`
+     - **Redirect URL:** `https://YOUR-DOMAIN/shopify/callback`
+     - **Scopes:** `read_orders,write_orders,read_customers,write_customers,read_products,read_fulfillments,read_checkouts,write_discounts,read_locations,write_order_edits`
+     - **Embed app in Shopify admin:** off is simplest (on also works).
+     - Request **protected customer data** access for name, email, phone and address.
+   - Put the app's **Client ID** in `SHOPIFY_API_KEY` and its **Client secret** in `SHOPIFY_API_SECRET`, then redeploy.
+   - **Linking a store** works in any of these ways:
+     - Click the app's install link from the Dev Dashboard (Distribution).
+     - Open `https://YOUR-DOMAIN/install`.
+     - Use **Stores → Connect store** in the portal.
+
+     After the merchant approves in Shopify, the store links itself: to the signed-in account, to its previous account on a reinstall, or through a one-click "Link your store" page after signing in or signing up. Webhooks are registered and the last 30 days of orders imported automatically.
+   - **Older stores:** if the store has a legacy custom app with an Admin token (`shpat_…`), use the **Custom app token** tab instead.
    - In Shopify checkout settings, make the phone number required.
-   - The platform registers webhooks itself and imports the last 30 days of orders.
 2. **Store → WhatsApp**: enter the Phone number ID, the WhatsApp Business Account ID and a permanent System User token from Meta Business Settings.
    - In your Meta app's WhatsApp configuration, set the webhook to the URL and verify token shown on that page.
    - Subscribe to the `messages`, `message_template_status_update` and `phone_number_quality_update` fields.

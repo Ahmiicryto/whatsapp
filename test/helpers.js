@@ -128,6 +128,7 @@ export function client() {
     patch: (p, b) => call("PATCH", p, b),
     del: (p) => call("DELETE", p),
     raw: call,
+    cookie: () => cookie,
   };
 }
 
@@ -136,8 +137,8 @@ export async function rawPost(path, rawBody, headers) {
   return { status: res.status, text: await res.text() };
 }
 
-export async function rawGet(path) {
-  const res = await realFetch(baseUrl + path, { redirect: "manual" });
+export async function rawGet(path, headers = {}) {
+  const res = await realFetch(baseUrl + path, { redirect: "manual", headers });
   return { status: res.status, text: await res.text(), headers: res.headers };
 }
 

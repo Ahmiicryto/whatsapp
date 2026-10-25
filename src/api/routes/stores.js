@@ -2,7 +2,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { one, many, query } from "../../db/pool.js";
 import { ah, badRequest, forbidden, notFound } from "../../lib/errors.js";
-import { encrypt, randomToken } from "../../lib/crypto.js";
+import { encrypt, decrypt, randomToken } from "../../lib/crypto.js";
+import { linkShopifyStore } from "../../services/storeLink.js";
 import { config } from "../../config.js";
 import { requireRole, assertStore, accessibleStoreIds } from "../auth.js";
 import { enqueue } from "../../queue/queue.js";
@@ -93,6 +94,31 @@ r.get(
     const state = randomToken(24);
     await query(`INSERT INTO oauth_states (state, user_id, account_id, shop) VALUES ($1,$2,$3,$4)`, [state, req.user.id, req.accountId, shop]);
     res.json({ url: buildInstallUrl(shop, state) });
+  })
+);
+
+// ---------- claim a store installed from Shopify ----------
+
+r.get(
+  "/stores/claim/:token",
+  ah(async (req, res) => {
+    const p = await one(`SELECT shop, created_at FROM pending_installs WHERE token=$1 AND created_at > now() - interval '7 days'`, [req.params.token]);
+    if (!p) throw notFound("This install link has expired. Install the app from Shopify again.");
+    res.json({ shop: p.shop });
+  })
+);
+
+r.post(
+  "/stores/claim",
+  requireRole("admin"),
+  ah(async (req, res) => {
+    const { token } = z.object({ token: z.string().min(10) }).parse(req.body);
+    const p = await one(`SELECT * FROM pending_installs WHERE token=$1 AND created_at > now() - interval '7 days'`, [token]);
+    if (!p) throw notFound("This install link has expired. Install the app from Shopify again.");
+    const storeId = await linkShopifyStore({ accountId: req.accountId, shop: p.shop, accessToken: decrypt(p.access_token_enc), scope: p.scope });
+    await query(`DELETE FROM pending_installs WHERE token=$1`, [token]);
+    await audit({ user: req.user, accountId: req.accountId, storeId, action: "store.claim", target: p.shop });
+    res.json({ storeId });
   })
 );
 

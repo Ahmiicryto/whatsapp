@@ -3,11 +3,11 @@ import { one, query } from "../db/pool.js";
 import { ah } from "../lib/errors.js";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
-import { decrypt, encrypt, verifySignature, safeEqual } from "../lib/crypto.js";
+import { decrypt, encrypt, verifySignature, safeEqual, randomToken } from "../lib/crypto.js";
+import { linkShopifyStore } from "../services/storeLink.js";
 import { enqueue } from "../queue/queue.js";
 import { verifyShopifyHmac } from "../shopify/webhooks.js";
-import { verifyOAuthQuery, exchangeCodeForToken, isValidShopDomain } from "../shopify/oauth.js";
-import { fetchShopInfo } from "../shopify/client.js";
+import { verifyOAuthQuery, exchangeCodeForToken, isValidShopDomain, normalizeShopDomain, buildInstallUrl } from "../shopify/oauth.js";
 import { verifyMetaSignature } from "../whatsapp/webhookParser.js";
 import { resolveShortLink } from "../services/links.js";
 import { fetchStaticMap } from "../google/address.js";
@@ -115,7 +115,54 @@ r.post(
   })
 );
 
-// ---------------------------------------------------------------- Shopify OAuth callback
+// ---------------------------------------------------------------- Shopify app install (OAuth)
+
+/** Account the signed-in user can link stores to (admin or owner), or null. */
+function linkableAccount(req) {
+  if (!req.user || !req.accountId) return null;
+  if (req.user.isSuperAdmin) return req.accountId;
+  return ["owner", "admin"].includes(req.membership?.role) ? req.accountId : null;
+}
+
+/** Page shown inside the Shopify admin iframe: OAuth must run in the top window. */
+function breakOutOfIframe(res, url) {
+  res.removeHeader("X-Frame-Options");
+  res.setHeader("Content-Security-Policy", "frame-ancestors https://admin.shopify.com https://*.myshopify.com; script-src 'unsafe-inline'");
+  const safe = url.replace(/"/g, "&quot;");
+  res.type("html").send(`<!doctype html><meta charset="utf-8"><title>WA Commerce</title>
+<body style="font-family:system-ui;padding:32px;text-align:center">
+<p>Opening WA Commerce…</p><p><a href="${safe}" target="_top" style="color:#16a34a;font-weight:600">Continue</a></p>
+<script>try{window.top.location.href=${JSON.stringify(url)}}catch(e){}</script></body>`);
+}
+
+/**
+ * App URL for the Shopify app. Shopify sends merchants here after they click the install link,
+ * or when they open the app from Shopify admin. Also used by the portal's /install page.
+ */
+r.get(
+  "/shopify/install",
+  ah(async (req, res) => {
+    const shop = normalizeShopDomain(req.query.shop);
+    if (!isValidShopDomain(shop)) return res.status(400).send("Missing or invalid shop. Use yourstore.myshopify.com");
+    if (!config.shopify.apiKey || !config.shopify.apiSecret) {
+      return res.status(500).send("Shopify app keys are not configured (SHOPIFY_API_KEY / SHOPIFY_API_SECRET).");
+    }
+    const fromShopify = !!req.query.hmac;
+    if (fromShopify && !verifyOAuthQuery(req.query)) return res.status(400).send("Invalid Shopify signature");
+
+    // Opened from Shopify admin for a store that is already linked: go straight to the portal.
+    const existing = await one(`SELECT id FROM stores WHERE lower(shopify_domain)=$1 AND shopify_token_enc IS NOT NULL AND status='active'`, [shop]);
+    if (fromShopify && existing) {
+      const target = `${config.baseUrl}/stores/${existing.id}`;
+      return req.query.embedded === "1" ? breakOutOfIframe(res, target) : res.redirect(target);
+    }
+
+    const state = randomToken(24);
+    await query(`INSERT INTO oauth_states (state, user_id, account_id, shop) VALUES ($1,$2,$3,$4)`, [state, req.user?.id ?? null, linkableAccount(req), shop]);
+    const url = buildInstallUrl(shop, state);
+    return req.query.embedded === "1" ? breakOutOfIframe(res, url) : res.redirect(url);
+  })
+);
 
 r.get(
   "/shopify/callback",
@@ -123,22 +170,26 @@ r.get(
     const { shop, code, state } = req.query;
     if (!isValidShopDomain(shop) || !verifyOAuthQuery(req.query)) return res.status(400).send("Invalid Shopify callback");
     const st = await one(`DELETE FROM oauth_states WHERE state=$1 AND created_at > now() - interval '1 hour' RETURNING *`, [state]);
-    if (!st || st.shop !== String(shop).toLowerCase()) return res.status(400).send("Install link expired. Start again from the portal.");
+    if (!st || st.shop !== String(shop).toLowerCase()) return res.status(400).send("Install link expired. Please install the app again.");
     const { accessToken, scope } = await exchangeCodeForToken(shop, code);
-    const info = await fetchShopInfo({ id: 0, shopifyDomain: shop, shopifyToken: accessToken });
-    const existing = await one(`SELECT id, account_id FROM stores WHERE lower(shopify_domain)=$1`, [String(shop).toLowerCase()]);
-    if (existing && existing.account_id !== st.account_id) return res.status(409).send("This store is already connected to another account.");
-    const row = await one(
-      `INSERT INTO stores (account_id, name, shopify_domain, shopify_token_enc, shopify_scopes, connection_type, currency, timezone, country)
-       VALUES ($1,$2,$3,$4,$5,'oauth',$6,$7,$8)
-       ON CONFLICT (shopify_domain) DO UPDATE SET shopify_token_enc=EXCLUDED.shopify_token_enc, shopify_scopes=EXCLUDED.shopify_scopes,
-         connection_type='oauth', webhook_secret_enc=NULL, status='active', updated_at=now()
-       RETURNING id`,
-      [st.account_id, info.name, String(shop).toLowerCase(), encrypt(accessToken), scope, info.currency, info.timezone, info.country]
-    );
-    invalidateStore(row.id);
-    await enqueue("store.setup", { storeId: row.id }, { singletonKey: `store:${row.id}:setup` });
-    res.redirect(`/stores/${row.id}?connected=1`);
+
+    // Link right away when we know the account (started from the portal, or the installer is signed in).
+    // A store that was linked before (e.g. reinstall after uninstall) returns to its own account.
+    const prior = await one(`SELECT account_id FROM stores WHERE lower(shopify_domain)=$1`, [String(shop).toLowerCase()]);
+    const accountId = st.account_id || prior?.account_id || linkableAccount(req);
+    if (accountId) {
+      try {
+        const storeId = await linkShopifyStore({ accountId, shop, accessToken, scope });
+        return res.redirect(`/stores/${storeId}?connected=1`);
+      } catch (err) {
+        if (err.status === 409) return res.status(409).send(err.message);
+        throw err;
+      }
+    }
+    // Otherwise park the install until someone signs in (or signs up) and claims it.
+    const token = randomToken(24);
+    await query(`INSERT INTO pending_installs (token, shop, access_token_enc, scope) VALUES ($1,$2,$3,$4)`, [token, String(shop).toLowerCase(), encrypt(accessToken), scope]);
+    res.redirect(`/claim-store?token=${encodeURIComponent(token)}`);
   })
 );
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import { post } from "../lib/api.js";
 import { useSession } from "../lib/session.jsx";
 import { Button, Field, Input, ErrorBox } from "../components/ui.jsx";
@@ -11,7 +11,10 @@ export default function Login() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
-  if (me) return <Navigate to="/" replace />;
+  const [params] = useSearchParams();
+  const next = (params.get("next") || "/").startsWith("/") && !(params.get("next") || "").startsWith("//") ? params.get("next") || "/" : "/";
+  const claiming = next.startsWith("/claim-store");
+  if (me) return <Navigate to={next} replace />;
 
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
@@ -22,7 +25,7 @@ export default function Login() {
     try {
       await post(mode === "login" ? "/auth/login" : "/auth/signup", form);
       await refresh();
-      navigate("/");
+      navigate(next);
     } catch (err) {
       setError(err);
     } finally {
@@ -36,7 +39,9 @@ export default function Login() {
         <div className="mb-6 text-center">
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-brand-600 text-2xl text-white">✓</div>
           <h1 className="text-xl font-semibold">WA Commerce</h1>
-          <p className="text-sm text-gray-500">WhatsApp automation for your Shopify stores</p>
+          <p className="text-sm text-gray-500">
+            {claiming ? "Sign in or create an account to finish linking your Shopify store" : "WhatsApp automation for your Shopify stores"}
+          </p>
         </div>
         <form onSubmit={submit} className="space-y-3 rounded-xl border border-gray-200 bg-white p-5 shadow-sm dark:border-gray-800 dark:bg-gray-900">
           {mode === "signup" && (

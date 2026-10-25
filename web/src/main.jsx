@@ -20,6 +20,8 @@ import Stores from "./pages/Stores.jsx";
 import StoreSettings from "./pages/StoreSettings.jsx";
 import Team from "./pages/Team.jsx";
 import Admin from "./pages/Admin.jsx";
+import Install from "./pages/Install.jsx";
+import ClaimStore from "./pages/ClaimStore.jsx";
 
 function Protected({ children }) {
   const { me } = useSession();
@@ -32,6 +34,8 @@ function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/install" element={<Install />} />
+      <Route path="/claim-store" element={<ClaimStore />} />
       <Route
         element={
           <Protected>
