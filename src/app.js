@@ -115,8 +115,12 @@ export function createApp() {
       return res.status(400).json({ error: "Invalid input", details: err.issues.map((i) => `${i.path.join(".")}: ${i.message}`) });
     }
     const status = err.status || err.statusCode || 500;
-    if (status >= 500) logger.error({ err, path: req.path }, "request failed");
-    res.status(status).json({ error: status >= 500 && config.isProd ? "Something went wrong" : err.message, details: err.details });
+    if (status >= 500) {
+      logger.error({ err, path: req.path }, "request failed");
+      console.error("request failed", req.method, req.path, err); // shows in Vercel / Render logs
+    }
+    // The message (never the stack) is returned so setup problems are visible in the portal.
+    res.status(status).json({ error: status >= 500 ? `Server error: ${err.message}` : err.message, details: err.details });
   });
   return app;
 }

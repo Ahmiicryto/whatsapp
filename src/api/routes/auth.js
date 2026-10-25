@@ -8,7 +8,17 @@ import { hashPassword, checkPassword, createSession, destroySession, requireAuth
 import { audit } from "../../services/audit.js";
 
 const r = Router();
-const limiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: config.isTest ? 1000 : 20, standardHeaders: true, legacyHeaders: false });
+// Key by the client IP from the proxy header ourselves: serverless platforms (Vercel) don't always
+// give Express a usable socket address, which makes the default key generator fail.
+const clientIp = (req) => String(req.headers["x-forwarded-for"] || "").split(",")[0].trim() || req.socket?.remoteAddress || "unknown";
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: config.isTest ? 1000 : 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: clientIp,
+  validate: false,
+});
 
 const signupSchema = z.object({
   name: z.string().min(1).max(100),
