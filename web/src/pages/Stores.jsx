@@ -100,18 +100,34 @@ export default function Stores() {
           </Card>
         ))}
       </div>
-      {me?.features?.shopifyOAuth && can("admin") && (
-        <Card title="Install link for your stores">
-          <p className="mb-2 text-sm text-gray-500">
-            Open this link (or share it with a store owner), enter the store name and approve in Shopify: the store is linked automatically.
-            Installing from the Shopify install link works the same way.
+      {can("admin") && (
+        <Card title="Shopify app settings">
+          <p className="mb-3 text-sm text-gray-500">
+            In the Shopify Dev Dashboard → your app → <b>Versions</b>, paste these exactly, then click <b>Release</b>.
+            {!me?.features?.shopifyOAuth && " Also add SHOPIFY_API_KEY (Client ID) and SHOPIFY_API_SECRET (Client secret) in your hosting settings and redeploy."}
           </p>
-          <div className="flex gap-2">
-            <Input readOnly value={`${window.location.origin}/install`} onFocus={(e) => e.target.select()} />
-            <Button variant="secondary" onClick={() => navigator.clipboard?.writeText(`${window.location.origin}/install`)}>
-              Copy
-            </Button>
+          <div className="space-y-3">
+            {[
+              ["App URL", me?.features?.shopifyAppUrl],
+              ["Redirect URL", me?.features?.shopifyRedirectUrl],
+              ...(me?.features?.shopifyOAuth ? [["Install link (share with store owners)", `${window.location.origin}/install`]] : []),
+            ].map(([label, value]) => (
+              <div key={label}>
+                <div className="mb-1 text-xs font-medium text-gray-600 dark:text-gray-400">{label}</div>
+                <div className="flex gap-2">
+                  <Input readOnly value={value || ""} onFocus={(e) => e.target.select()} />
+                  <Button variant="secondary" onClick={() => navigator.clipboard?.writeText(value)}>
+                    Copy
+                  </Button>
+                </div>
+              </div>
+            ))}
           </div>
+          {me?.features?.shopifyAppUrl && !me.features.shopifyAppUrl.startsWith(window.location.origin) && (
+            <p className="mt-3 text-xs text-amber-700">
+              These use {new URL(me.features.shopifyAppUrl).origin}, but you're browsing {window.location.origin}. Set APP_BASE_URL to the address you use, then redeploy.
+            </p>
+          )}
         </Card>
       )}
       <Card title="Add another business">

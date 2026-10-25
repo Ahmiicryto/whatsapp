@@ -94,7 +94,13 @@ r.get(
       accounts,
       stores,
       impersonating: !!req.user.impersonatorId,
-      features: { signup: config.allowSignup, shopifyOAuth: !!(config.shopify.apiKey && config.shopify.apiSecret) },
+      features: {
+        signup: config.allowSignup,
+        shopifyOAuth: !!(config.shopify.apiKey && config.shopify.apiSecret),
+        // exact URLs to paste into the Shopify app settings
+        shopifyAppUrl: `${config.baseUrl}/shopify/install`,
+        shopifyRedirectUrl: `${config.baseUrl}/shopify/callback`,
+      },
     });
   })
 );
