@@ -1,0 +1,16 @@
+{
+  "name": "wa-commerce-gateway",
+  "version": "1.0.0",
+  "description": "Optional WhatsApp Web (QR login) gateway for WA Commerce. Must run on an always-on host.",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=20" },
+  "scripts": { "start": "node index.js" },
+  "dependencies": {
+    "@whiskeysockets/baileys": "6.7.24",
+    "express": "^4.21.2",
+    "pg": "^8.13.1",
+    "pino": "^9.6.0",
+    "qrcode": "^1.5.4"
+  }
+}

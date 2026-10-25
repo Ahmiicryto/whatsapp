@@ -1,3 +1,4 @@
+import { UsersRound } from "lucide-react";
 import { useState } from "react";
 import { useApi, post, patch, del } from "../lib/api.js";
 import { useSession } from "../lib/session.jsx";
@@ -74,7 +75,7 @@ export default function Team() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Team & logs" actions={tab === "team" && can("owner") && <Button onClick={() => setEditing({})}>Add member</Button>} />
+      <PageHeader icon={UsersRound} title="Team & logs" actions={tab === "team" && can("owner") && <Button onClick={() => setEditing({})}>Add member</Button>} />
       <Tabs value={tab} onChange={setTab} tabs={[{ value: "team", label: "Team" }, { value: "audit", label: "Audit log" }, { value: "usage", label: "Usage" }, { value: "me", label: "My password" }]} />
       {tab === "team" && (
         <Card padded={false}>

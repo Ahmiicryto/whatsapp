@@ -22,7 +22,7 @@ export async function getStoreContext(storeId) {
   const row = await one(
     `SELECT s.*, a.status AS account_status, a.limits AS account_limits,
             w.id AS wa_id, w.phone_number_id, w.waba_id, w.token_enc AS wa_token_enc,
-            w.app_secret_enc AS wa_app_secret_enc, w.display_number, w.quality_rating
+            w.app_secret_enc AS wa_app_secret_enc, w.display_number, w.quality_rating, w.provider AS wa_provider, w.gateway_session
        FROM stores s
        JOIN accounts a ON a.id = s.account_id
        LEFT JOIN whatsapp_numbers w ON w.id = s.whatsapp_number_id
@@ -58,9 +58,11 @@ export async function getStoreContext(storeId) {
     wa: row.wa_id
       ? {
           id: row.wa_id,
+          provider: row.wa_provider || "cloud", // cloud | gateway (QR-linked WhatsApp Web)
+          gatewaySession: row.gateway_session,
           phoneNumberId: row.phone_number_id,
           wabaId: row.waba_id,
-          token: decrypt(row.wa_token_enc),
+          token: row.wa_token_enc ? decrypt(row.wa_token_enc) : null,
           appSecret: row.wa_app_secret_enc ? decrypt(row.wa_app_secret_enc) : config.meta.appSecret,
           displayNumber: row.display_number,
           qualityRating: row.quality_rating,

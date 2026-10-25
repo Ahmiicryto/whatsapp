@@ -4,6 +4,8 @@ import { toWaId } from "../lib/phone.js";
 import { truncate } from "../lib/format.js";
 import * as wa from "../whatsapp/cloudApi.js";
 import { buildTemplatePayload, renderTemplateText } from "../whatsapp/templates.js";
+import { sendViaGateway } from "../whatsapp/gateway.js";
+import { toGatewayMessage, templateToGatewayMessage } from "../whatsapp/plain.js";
 import { countUsage } from "./audit.js";
 
 const WINDOW_MS = 24 * 3600 * 1000;
@@ -20,16 +22,26 @@ export async function upsertConversation(storeId, phone, { customerId, name } = 
   );
 }
 
+/** True when free-form messages may be sent (always for QR-linked numbers, which have no 24h rule). */
+export function canMessageFreely(store, conversation) {
+  return isGateway(store) || windowOpen(conversation);
+}
+
 export function windowOpen(conversation, now = Date.now()) {
   return !!conversation?.last_inbound_at && now - new Date(conversation.last_inbound_at).getTime() < WINDOW_MS;
 }
 
-/** Approved template for a kind, preferring the store language. */
-export async function findTemplate(storeId, kind, language) {
+const isGateway = (store) => store.wa?.provider === "gateway";
+
+/**
+ * Approved template for a kind, preferring the store language.
+ * QR-linked numbers render templates locally, so Meta approval isn't needed there.
+ */
+export async function findTemplate(storeId, kind, language, { anyStatus = false } = {}) {
   return one(
-    `SELECT * FROM templates WHERE store_id=$1 AND kind=$2 AND status='APPROVED'
-     ORDER BY (language = $3) DESC, updated_at DESC LIMIT 1`,
-    [storeId, kind, language || "en"]
+    `SELECT * FROM templates WHERE store_id=$1 AND kind=$2 AND ($4 OR status='APPROVED')
+     ORDER BY (status='APPROVED') DESC, (language = $3) DESC, updated_at DESC LIMIT 1`,
+    [storeId, kind, language || "en", anyStatus]
   );
 }
 
@@ -77,13 +89,25 @@ async function touchConversation(conversationId, preview, { inbound = false } = 
 
 function requireWa(store) {
   if (!store.wa) throw new PermanentError("No WhatsApp number linked to this store");
+  if (isGateway(store) && !store.wa.gatewaySession) throw new PermanentError("The QR-linked WhatsApp session is missing. Scan the QR code again.");
   if (!store.active) throw new PermanentError("Store or account is not active");
 }
 
-async function deliver(store, { to, payload, record }) {
+async function deliver(store, { to, payload, record, gateway }) {
   const conversation = record.conversation || (await upsertConversation(store.id, to, { customerId: record.customerId, name: record.name }));
   try {
-    const wamid = await wa.sendMessage(store.wa, toWaId(to), payload);
+    let wamid;
+    if (isGateway(store)) {
+      const plain = gateway || toGatewayMessage(payload, record.body);
+      wamid = await sendViaGateway(store.wa.gatewaySession, toWaId(to), plain.message);
+      // remember the numbered menu so a reply like "2" maps back to the right button
+      await query(
+        `UPDATE conversations SET state = (state - 'options') || CASE WHEN $2::jsonb = '[]'::jsonb THEN '{}'::jsonb ELSE jsonb_build_object('options', $2::jsonb) END WHERE id=$1`,
+        [conversation.id, JSON.stringify(plain.options || [])]
+      );
+    } else {
+      wamid = await wa.sendMessage(store.wa, toWaId(to), payload);
+    }
     const msg = await insertMessage(store, {
       ...record,
       conversationId: conversation.id,
@@ -120,14 +144,15 @@ async function deliver(store, { to, payload, record }) {
 export async function sendTemplate(store, { kind, template, to, ctx, orderId, customerId, campaignId, messageKind, name, skipOptInCheck = false }) {
   requireWa(store);
   if (!to) throw new PermanentError("No phone number");
-  const tpl = template || (await findTemplate(store.id, kind, store.settings.language));
+  const tpl = template || (await findTemplate(store.id, kind, store.settings.language, { anyStatus: isGateway(store) }));
   if (!tpl) throw new PermanentError(`No approved "${kind}" template for this store. Install templates under Templates.`);
   const category = String(tpl.category || "UTILITY").toLowerCase();
   if (category === "marketing" && !skipOptInCheck) await assertMarketingAllowed(store, to, customerId);
-  const payload = buildTemplatePayload(tpl, ctx);
+  const payload = isGateway(store) ? { type: "template", template: { name: tpl.name } } : buildTemplatePayload(tpl, ctx);
   return deliver(store, {
     to,
     payload,
+    gateway: isGateway(store) ? templateToGatewayMessage(tpl, ctx) : undefined,
     record: {
       kind: messageKind || tpl.kind,
       templateName: tpl.name,
@@ -148,7 +173,7 @@ export async function sendTemplate(store, { kind, template, to, ctx, orderId, cu
 export async function sendSession(store, { to, payload, body, kind, orderId, customerId, userId, aiGenerated, conversation }) {
   requireWa(store);
   const conv = conversation || (await upsertConversation(store.id, to, { customerId }));
-  if (!windowOpen(conv)) {
+  if (!isGateway(store) && !windowOpen(conv)) {
     throw new PermanentError("The 24-hour WhatsApp window is closed. Send an approved template instead.");
   }
   return deliver(store, {

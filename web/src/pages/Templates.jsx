@@ -1,3 +1,4 @@
+import { Puzzle } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useApi, qs, post, put, del, fileToBase64 } from "../lib/api.js";
 import { useSingleStore } from "../lib/session.jsx";
@@ -242,6 +243,7 @@ export default function Templates() {
   return (
     <div className="space-y-4">
       <PageHeader
+        icon={Puzzle}
         title="WhatsApp templates"
         subtitle={`Business-initiated messages need templates approved by Meta. Showing ${store.name}.`}
         actions={

@@ -21,6 +21,7 @@ import templateRoutes from "./api/routes/templates.js";
 import reportRoutes from "./api/routes/reports.js";
 import teamRoutes from "./api/routes/team.js";
 import adminRoutes from "./api/routes/admin.js";
+import productRoutes from "./api/routes/products.js";
 import { isAuthorizedCron, runTick } from "./serverless.js";
 
 const webDist = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist", "web");
@@ -36,8 +37,10 @@ export function createApp() {
           defaultSrc: ["'self'"],
           imgSrc: ["'self'", "data:", "blob:", "https:"],
           styleSrc: ["'self'", "'unsafe-inline'"],
-          scriptSrc: ["'self'"],
-          connectSrc: ["'self'"],
+          // Facebook SDK for the official WhatsApp signup popup (Meta Embedded Signup)
+          scriptSrc: ["'self'", "https://connect.facebook.net"],
+          connectSrc: ["'self'", "https://graph.facebook.com", "https://www.facebook.com", "https://connect.facebook.net"],
+          frameSrc: ["https://www.facebook.com", "https://web.facebook.com", "https://business.facebook.com"],
           frameAncestors: ["'none'"],
         },
       },
@@ -97,6 +100,7 @@ export function createApp() {
   api.use(templateRoutes);
   api.use(reportRoutes);
   api.use(teamRoutes);
+  api.use(productRoutes);
   api.use("/admin", adminRoutes);
   app.use("/api", api);
   app.use("/api", (_req, _res, next) => next(new HttpError(404, "API route not found")));

@@ -1,3 +1,4 @@
+import { AlertTriangle, CheckCircle2, Clock3, LayoutDashboard, Package, Send, Sparkles, Wallet, XCircle } from "lucide-react";
 import { useState } from "react";
 import { useApi, qs, post } from "../lib/api.js";
 import { useSession } from "../lib/session.jsx";
@@ -65,6 +66,7 @@ export default function Dashboard() {
   return (
     <div className="space-y-5">
       <PageHeader
+        icon={LayoutDashboard}
         title="Dashboard"
         subtitle={storeId === "all" ? `All ${stores.length} stores` : stores.find((s) => String(s.id) === storeId)?.name}
         actions={<Select value={days} onChange={(e) => setDays(e.target.value)} options={RANGES} className="w-40" />}
@@ -72,14 +74,14 @@ export default function Dashboard() {
       {loading && <div className="text-xs text-gray-400">Refreshing…</div>}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Orders" value={num(k.orders)} sub={`${num(k.cod)} cash on delivery`} />
-        <Stat label="Revenue" value={money(k.revenue, cur)} sub={`AOV ${money(k.aov, cur)}`} />
-        <Stat label="Confirmed" value={`${k.confirmation_rate}%`} tone="green" sub={`${num(k.confirmed)} confirmed on WhatsApp`} />
-        <Stat label="Cancelled" value={`${k.cancel_rate}%`} tone="red" sub={`${num(k.cancelled_by_customer)} by customers`} />
-        <Stat label="Awaiting reply" value={num(k.awaiting)} tone="amber" sub={`${num(k.no_response)} no response`} />
-        <Stat label="Messages sent" value={num(m.sent)} sub={`${m.delivery_rate}% delivered · ${m.read_rate}% read`} />
-        <Stat label="AI replies" value={num(m.ai_replies)} tone="blue" sub={`${num(m.received)} customer messages`} />
-        <Stat label="Needs attention" value={num(k.needs_attention)} tone={Number(k.needs_attention) ? "red" : "gray"} sub={`${num(k.high_risk)} high risk orders`} />
+        <Stat icon={Package} label="Orders" value={num(k.orders)} sub={`${num(k.cod)} cash on delivery`} />
+        <Stat icon={Wallet} label="Revenue" value={money(k.revenue, cur)} sub={`AOV ${money(k.aov, cur)}`} />
+        <Stat icon={CheckCircle2} label="Confirmed" value={`${k.confirmation_rate}%`} tone="green" sub={`${num(k.confirmed)} confirmed on WhatsApp`} />
+        <Stat icon={XCircle} label="Cancelled" value={`${k.cancel_rate}%`} tone="red" sub={`${num(k.cancelled_by_customer)} by customers`} />
+        <Stat icon={Clock3} label="Awaiting reply" value={num(k.awaiting)} tone="amber" sub={`${num(k.no_response)} no response`} />
+        <Stat icon={Send} label="Messages sent" value={num(m.sent)} sub={`${m.delivery_rate}% delivered · ${m.read_rate}% read`} />
+        <Stat icon={Sparkles} label="AI replies" value={num(m.ai_replies)} tone="blue" sub={`${num(m.received)} customer messages`} />
+        <Stat icon={AlertTriangle} label="Needs attention" value={num(k.needs_attention)} tone={Number(k.needs_attention) ? "red" : "gray"} sub={`${num(k.high_risk)} high risk orders`} />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

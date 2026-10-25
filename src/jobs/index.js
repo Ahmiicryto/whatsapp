@@ -12,7 +12,7 @@ import * as confirmation from "../services/confirmation.js";
 import { ingestFulfillment, notifyTracking, sendReviewRequest } from "../services/tracking.js";
 import * as marketing from "../services/marketing.js";
 import { raiseAlert, sendAlert } from "../services/alerts.js";
-import { queueDueReports, runReport } from "../services/reports.js";
+import { queueDueReports, runReport, runPlatformReport } from "../services/reports.js";
 import { installDefaultTemplates, syncTemplates } from "../services/templates.js";
 import { handleMessageEvent, handleStatusEvent, handleTemplateStatusEvent, handleQualityEvent } from "../services/inbound.js";
 import { parseWebhook } from "../whatsapp/webhookParser.js";
@@ -20,6 +20,8 @@ import { normalizeWebhookOrder, fetchVariantImages, fetchOrdersSince, fetchOrder
 import { registerWebhooks } from "../shopify/webhooks.js";
 import { splitBundles } from "../bundles/splitter.js";
 import { tx } from "../db/pool.js";
+import { syncProducts, upsertProduct, deleteProduct, fillOrderItemImages } from "../services/products.js";
+import { normalizeWebhookProduct } from "../shopify/products.js";
 
 async function activeStore(storeId) {
   const store = await getStoreContext(storeId);
@@ -30,6 +32,7 @@ async function activeStore(storeId) {
 // ---------------------------------------------------------------- order pipeline
 
 async function enrichImages(store, order) {
+  await fillOrderItemImages(store.id, order.id); // from the synced product catalog (no API call)
   const items = await getOrderItems(order.id);
   const missing = items.filter((i) => !i.image_url && (i.variant_id || i.product_id));
   if (!missing.length || !store.shopifyToken) return items;
@@ -116,6 +119,11 @@ async function handleShopifyWebhook({ storeId, topic, payload }) {
       }
       return;
     }
+    case "products/create":
+    case "products/update":
+      return upsertProduct(store, normalizeWebhookProduct(payload));
+    case "products/delete":
+      return deleteProduct(store.id, Number(payload.id));
     case "checkouts/create":
     case "checkouts/update":
       return marketing.ingestCheckout(store, payload);
@@ -162,6 +170,36 @@ async function handleWhatsAppWebhook({ body }) {
   }
 }
 
+/** Events from the QR gateway: incoming messages, delivery statuses and connection changes. */
+async function handleGatewayEvent({ ev }) {
+  const phoneNumberId = `gw:${ev.session}`;
+  if (ev.type === "message") {
+    return handleMessageEvent({ ...ev, phoneNumberId, timestamp: new Date(ev.timestamp || Date.now()) });
+  }
+  if (ev.type === "status") return handleStatusEvent({ ...ev, errors: ev.error ? [{ title: ev.error }] : [] });
+  if (ev.type === "connection") {
+    const row = await one(
+      `UPDATE whatsapp_numbers SET status=$2, display_number=COALESCE($3, display_number), verified_name=COALESCE($4, verified_name), updated_at=now()
+        WHERE gateway_session=$1 RETURNING id, pending_store_id`,
+      [ev.session, ev.status === "connected" ? "active" : ev.status === "logged_out" ? "disconnected" : "connecting", ev.phone || null, ev.name || null]
+    );
+    if (!row) return;
+    if (ev.status === "connected" && row.pending_store_id) {
+      await query(`UPDATE whatsapp_numbers SET pending_store_id=NULL WHERE id=$1`, [row.id]);
+      await query(`UPDATE stores SET whatsapp_number_id=$2, updated_at=now() WHERE id=$1`, [row.pending_store_id, row.id]);
+      await enqueue("templates.install", { storeId: row.pending_store_id }, { singletonKey: `store:${row.pending_store_id}:templates` });
+    }
+    const stores = await many(`SELECT id FROM stores WHERE whatsapp_number_id=$1`, [row.id]);
+    for (const s of stores) {
+      invalidateStore(s.id);
+      if (ev.status === "logged_out") {
+        const store = await getStoreContext(s.id);
+        await raiseAlert(store, "gateway_logout", `gwlogout:${ev.session}:${Date.now()}`, "Your QR-linked WhatsApp was logged out. Open Store → WhatsApp and scan the QR code again.");
+      }
+    }
+  }
+}
+
 async function handleWaEvent({ ev }) {
   if (ev.timestamp) ev.timestamp = new Date(ev.timestamp);
   if (ev.type === "message") return handleMessageEvent(ev);
@@ -185,6 +223,7 @@ async function setupStore({ storeId }) {
   await query(`UPDATE stores SET webhooks_registered_at=now() WHERE id=$1`, [store.id]);
   logger.info({ store: store.id, failed: results.filter((r) => !r.ok).map((r) => r.topic) }, "webhooks registered");
   await installDefaultTemplates(store, { submit: !!store.wa?.wabaId });
+  await enqueue("store.products", { storeId }, { singletonKey: `store:${storeId}:products` });
   await enqueue("store.backfill", { storeId, days: 30 }, { singletonKey: `store:${storeId}:backfill` });
 }
 
@@ -247,6 +286,7 @@ async function dailyMaintenance() {
   const stores = await many(`SELECT id FROM stores WHERE status='active'`);
   for (const s of stores) {
     await marketing.computeRfm(s.id);
+    await enqueue("store.products", { storeId: s.id }, { singletonKey: `store:${s.id}:products` });
     const store = await getStoreContext(s.id);
     await marketing.queueWinBacks(store);
   }
@@ -279,6 +319,7 @@ export const handlers = {
   "shopify.webhook": handleShopifyWebhook,
   "wa.webhook": handleWhatsAppWebhook,
   "wa.event": handleWaEvent,
+  "gateway.event": handleGatewayEvent,
   "order.process": withStore((store, d) => processOrder(store, d.orderId)),
   "bundle.split": withStore(async (store, d) => {
     const order = await getOrder(d.orderId);
@@ -319,9 +360,13 @@ export const handlers = {
   "winback.send": withStore((store, d) => marketing.sendWinBack(store, d.customerId)),
   "alert.send": withStore((store, d) => sendAlert(store, d.alertId)),
   "report.run": (d) => runReport(d),
+  "report.platform": () => runPlatformReport(),
   "store.setup": setupStore,
   "store.backfill": withStore((store, d) => backfill(store, d.days)),
   "store.reconcile": reconcileStore,
+  "store.products": withStore(async (store) => {
+    if (store.shopifyToken) await syncProducts(store);
+  }),
   "templates.install": withStore((store) => installDefaultTemplates(store, { submit: true })),
   "cron.reconcile": reconcileAll,
   "cron.reports": () => queueDueReports(),

@@ -14,6 +14,7 @@ import { fetchShopInfo } from "../../shopify/client.js";
 import { normalizeShopDomain, isValidShopDomain, buildInstallUrl } from "../../shopify/oauth.js";
 import * as wa from "../../whatsapp/cloudApi.js";
 import { normalizePhone, toWaId } from "../../lib/phone.js";
+import { startSession, sessionStatus, logoutSession, gatewayConfigured } from "../../whatsapp/gateway.js";
 
 const r = Router();
 
@@ -126,7 +127,7 @@ r.get(
   "/stores/:id",
   ah(async (req, res) => {
     const store = await assertStore(req, req.params.id);
-    const wn = store.whatsapp_number_id ? await one(`SELECT id, phone_number_id, waba_id, display_number, verified_name, quality_rating, messaging_limit, webhook_key, app_secret_enc IS NOT NULL AS own_app FROM whatsapp_numbers WHERE id=$1`, [store.whatsapp_number_id]) : null;
+    const wn = store.whatsapp_number_id ? await one(`SELECT id, phone_number_id, waba_id, display_number, verified_name, quality_rating, messaging_limit, webhook_key, provider, status, app_secret_enc IS NOT NULL AS own_app FROM whatsapp_numbers WHERE id=$1`, [store.whatsapp_number_id]) : null;
     const keys = await many(`SELECT provider FROM api_keys WHERE store_id=$1`, [store.id]);
     const failed = await one(`SELECT count(*) AS n FROM jobs WHERE store_id=$1 AND status='failed' AND updated_at > now() - interval '7 days'`, [store.id]);
     res.json({
@@ -309,6 +310,121 @@ r.post(
   })
 );
 
+// ---------- Official QR / Facebook login (Meta Embedded Signup) ----------
+
+r.post(
+  "/stores/:id/whatsapp/embedded",
+  ah(async (req, res) => {
+    const store = await assertStore(req, req.params.id, "admin");
+    const b = z
+      .object({ code: z.string().min(10), phoneNumberId: z.string().min(5), wabaId: z.string().min(5), coexistence: z.boolean().default(true), pin: z.string().regex(/^\d{6}$/).optional() })
+      .parse(req.body);
+    const owner = await one(`SELECT account_id FROM whatsapp_numbers WHERE phone_number_id=$1`, [b.phoneNumberId]);
+    if (owner && owner.account_id !== store.account_id) throw forbidden("This WhatsApp number is linked to another account");
+    let token;
+    try {
+      token = await wa.exchangeSignupCode(b.code);
+    } catch (err) {
+      throw badRequest(err.message);
+    }
+    const creds = { phoneNumberId: b.phoneNumberId, wabaId: b.wabaId, token };
+    await wa.subscribeApp(creds).catch((err) => {
+      throw badRequest(`Could not subscribe to your WhatsApp account: ${err.message}`);
+    });
+    // Numbers that keep using the WhatsApp Business app (QR "coexistence") must not be registered again.
+    if (!b.coexistence) await wa.registerNumber(creds, b.pin || "000000").catch(() => {});
+    const info = await wa.getPhoneNumberInfo(creds).catch(() => ({}));
+    const row = await one(
+      `INSERT INTO whatsapp_numbers (account_id, phone_number_id, waba_id, display_number, verified_name, token_enc, webhook_key, quality_rating, messaging_limit, provider)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'cloud')
+       ON CONFLICT (phone_number_id) DO UPDATE SET waba_id=EXCLUDED.waba_id, token_enc=EXCLUDED.token_enc, app_secret_enc=NULL,
+         display_number=COALESCE(EXCLUDED.display_number, whatsapp_numbers.display_number), verified_name=COALESCE(EXCLUDED.verified_name, whatsapp_numbers.verified_name),
+         quality_rating=EXCLUDED.quality_rating, messaging_limit=EXCLUDED.messaging_limit, status='active', updated_at=now()
+       RETURNING id`,
+      [store.account_id, b.phoneNumberId, b.wabaId, info.display_phone_number || null, info.verified_name || null, encrypt(token), randomToken(16), info.quality_rating || null, info.messaging_limit_tier || null]
+    );
+    await query(`UPDATE stores SET whatsapp_number_id=$2, updated_at=now() WHERE id=$1`, [store.id, row.id]);
+    invalidateStore(store.id);
+    await enqueue("templates.install", { storeId: store.id }, { singletonKey: `store:${store.id}:templates` });
+    await audit({ user: req.user, accountId: store.account_id, storeId: store.id, action: "whatsapp.embedded_signup" });
+    res.json({ ok: true, display: info.display_phone_number || null });
+  })
+);
+
+// ---------- WhatsApp Web-style QR login (gateway) ----------
+
+/** The store's QR number: the linked one, else a session still waiting to be scanned. */
+async function gatewayNumber(store) {
+  const linked = store.whatsapp_number_id
+    ? await one(`SELECT * FROM whatsapp_numbers WHERE id=$1 AND provider='gateway'`, [store.whatsapp_number_id])
+    : null;
+  return linked || one(`SELECT * FROM whatsapp_numbers WHERE pending_store_id=$1 AND provider='gateway' ORDER BY id DESC LIMIT 1`, [store.id]);
+}
+
+/** Phone scanned: point the store at the QR number (replacing any Cloud number only now). */
+async function activateGatewayNumber(storeId, num) {
+  await query(`UPDATE whatsapp_numbers SET pending_store_id=NULL WHERE id=$1`, [num.id]);
+  await query(`UPDATE stores SET whatsapp_number_id=$2, updated_at=now() WHERE id=$1`, [storeId, num.id]);
+  invalidateStore(storeId);
+}
+
+r.post(
+  "/stores/:id/whatsapp/qr",
+  ah(async (req, res) => {
+    const store = await assertStore(req, req.params.id, "admin");
+    if (!gatewayConfigured()) throw badRequest("QR login needs the WhatsApp gateway. Set GATEWAY_URL and GATEWAY_SECRET (see README → QR gateway).");
+    let num = await gatewayNumber(store);
+    if (!num) {
+      const session = `s${store.id}-${randomToken(6).replace(/[^a-zA-Z0-9]/g, "")}`;
+      num = await one(
+        `INSERT INTO whatsapp_numbers (account_id, phone_number_id, provider, gateway_session, webhook_key, status, pending_store_id)
+         VALUES ($1,$2,'gateway',$3,$4,'connecting',$5) RETURNING *`,
+        [store.account_id, `gw:${session}`, session, randomToken(16), store.id]
+      );
+      await audit({ user: req.user, accountId: store.account_id, storeId: store.id, action: "whatsapp.qr_start" });
+    }
+    const status = await startSession(num.gateway_session).catch((err) => {
+      throw badRequest(`WhatsApp gateway: ${err.message}`);
+    });
+    res.json(status);
+  })
+);
+
+r.get(
+  "/stores/:id/whatsapp/qr",
+  ah(async (req, res) => {
+    const store = await assertStore(req, req.params.id, "admin");
+    const num = await gatewayNumber(store);
+    if (!num) return res.json({ status: "none" });
+    const status = await sessionStatus(num.gateway_session).catch((err) => ({ status: "error", error: err.message }));
+    if (status.status === "connected") {
+      await query(
+        `UPDATE whatsapp_numbers SET status='active', display_number=COALESCE($2, display_number), verified_name=COALESCE($3, verified_name), updated_at=now() WHERE id=$1`,
+        [num.id, status.phone || null, status.name || null]
+      );
+      await activateGatewayNumber(store.id, num);
+      // templates are rendered locally for QR numbers; make sure the defaults exist
+      await enqueue("templates.install", { storeId: store.id }, { singletonKey: `store:${store.id}:templates` });
+    }
+    res.json(status);
+  })
+);
+
+r.delete(
+  "/stores/:id/whatsapp/qr",
+  ah(async (req, res) => {
+    const store = await assertStore(req, req.params.id, "admin");
+    const num = await gatewayNumber(store);
+    if (num) {
+      await logoutSession(num.gateway_session).catch(() => {});
+      await query(`UPDATE stores SET whatsapp_number_id=NULL WHERE id=$1 AND whatsapp_number_id=$2`, [store.id, num.id]);
+      await query(`DELETE FROM whatsapp_numbers WHERE id=$1 AND NOT EXISTS (SELECT 1 FROM stores WHERE whatsapp_number_id=$1)`, [num.id]);
+      invalidateStore(store.id);
+    }
+    res.json({ ok: true });
+  })
+);
+
 r.delete(
   "/stores/:id/whatsapp",
   ah(async (req, res) => {
@@ -327,6 +443,13 @@ r.post(
     if (!ctx.wa) throw badRequest("No WhatsApp number linked");
     const to = normalizePhone(req.body.phone, ctx.country);
     if (!to) throw badRequest("Enter a valid phone number");
+    if (ctx.wa.provider === "gateway") {
+      const { sendViaGateway } = await import("../../whatsapp/gateway.js");
+      const id = await sendViaGateway(ctx.wa.gatewaySession, toWaId(to), { text: "✅ Test message from WA Commerce. Your QR-linked WhatsApp is working." }).catch((err) => {
+        throw badRequest(err.message);
+      });
+      return res.json({ ok: true, wamid: id });
+    }
     // hello_world exists in every new WhatsApp Business Account
     const wamid = await wa
       .sendMessage(ctx.wa, toWaId(to), { type: "template", template: { name: "hello_world", language: { code: "en_US" } } })

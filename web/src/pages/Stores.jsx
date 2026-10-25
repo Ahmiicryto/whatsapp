@@ -1,3 +1,4 @@
+import { AlertTriangle, Smartphone, Store } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApi, post } from "../lib/api.js";
@@ -71,6 +72,7 @@ export default function Stores() {
   return (
     <div className="space-y-4">
       <PageHeader
+        icon={Store}
         title="Stores"
         subtitle="Each store has its own Shopify connection, WhatsApp number, templates, settings and reports."
         actions={can("admin") && <Button onClick={() => setConnecting(true)}>Connect store</Button>}
@@ -82,14 +84,27 @@ export default function Stores() {
           <Card key={s.id}>
             <button className="block w-full text-left" onClick={() => navigate(`/stores/${s.id}`)}>
               <div className="flex items-start justify-between gap-2">
-                <div>
+                <div className="flex items-center gap-3">
+                  <div className="brand-gradient flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold text-white shadow-glow">{s.name.slice(0, 1).toUpperCase()}</div>
+                  <div>
                   <div className="font-semibold">{s.name}</div>
                   <div className="text-xs text-gray-500">{s.shopify_domain}</div>
+                  </div>
                 </div>
                 <Badge tone={s.status === "active" ? "green" : "red"}>{s.status}</Badge>
               </div>
               <div className="mt-3 space-y-1 text-sm">
-                <div>{s.display_number ? `📱 ${s.display_number}` : <span className="text-amber-600">⚠️ No WhatsApp number linked</span>}</div>
+                <div className="flex items-center gap-1.5">
+                  {s.display_number ? (
+                    <>
+                      <Smartphone className="h-4 w-4 text-brand-600" /> {s.display_number}
+                    </>
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-amber-600">
+                      <AlertTriangle className="h-4 w-4" /> No WhatsApp number linked
+                    </span>
+                  )}
+                </div>
                 {s.quality_rating && <div className="text-xs text-gray-500">Quality: {s.quality_rating}</div>}
                 <div className="text-xs text-gray-500">
                   {s.orders_24h} orders today · {s.awaiting} awaiting reply · synced {ago(s.last_reconciled_at)}

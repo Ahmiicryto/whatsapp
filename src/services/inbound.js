@@ -3,10 +3,11 @@ import { fromWaId } from "../lib/phone.js";
 import { formatMoney } from "../lib/format.js";
 import { logger } from "../logger.js";
 import * as wa from "../whatsapp/cloudApi.js";
+import { matchOption } from "../whatsapp/plain.js";
 import { aiAvailable, transcribe } from "../ai/provider.js";
 import { detectIntent, keywordIntent, agentReply } from "../ai/features.js";
 import { getStoreContext, invalidateStore } from "./stores.js";
-import { upsertConversation, recordInbound, sendText, applyStatus, windowOpen } from "./messaging.js";
+import { upsertConversation, recordInbound, sendText, applyStatus, windowOpen, canMessageFreely } from "./messaging.js";
 import { getOrder, queueTags, setOrderStatus } from "./orders.js";
 import * as flow from "./confirmation.js";
 import { raiseAlert } from "./alerts.js";
@@ -65,9 +66,11 @@ export async function handleMessageEvent(ev) {
 
   let text = ev.text || "";
   let recordBody;
-  if (ev.kind === "audio" && ev.media?.id && store.settings.ai.voiceNotes && aiAvailable(store)) {
+  if (ev.kind === "audio" && (ev.media?.id || ev.media?.base64) && store.settings.ai.voiceNotes && aiAvailable(store)) {
     try {
-      const media = await wa.downloadMedia(store.wa, ev.media.id);
+      const media = ev.media.base64
+        ? { buffer: Buffer.from(ev.media.base64, "base64"), mime: ev.media.mime } // sent along by the QR gateway
+        : await wa.downloadMedia(store.wa, ev.media.id);
       text = await transcribe(store, media.buffer, media.mime);
       recordBody = `🎤 ${text}`;
     } catch (err) {
@@ -79,8 +82,14 @@ export async function handleMessageEvent(ev) {
 
   const msg = await recordInbound(store, conversation, ev, { body: recordBody });
   if (!msg) return; // duplicate webhook
-  wa.markRead(store.wa, ev.wamid);
+  if (store.wa.provider !== "gateway") wa.markRead(store.wa, ev.wamid);
   conversation = await one(`SELECT * FROM conversations WHERE id=$1`, [conversation.id]);
+
+  // QR-linked numbers send numbered menus instead of buttons: "2" -> the second button's payload.
+  if (!ev.payload) {
+    const picked = matchOption(text, conversation.state?.options);
+    if (picked) ev.payload = picked;
+  }
 
   if (ev.payload) return handlePayload(store, conversation, ev.payload, customer, text);
 
@@ -191,7 +200,7 @@ async function handlePayload(store, conversation, payload, customer, text) {
 export async function agentRespond(store, conversation, text, language) {
   const s = store.settings.ai;
   const paused = conversation.ai_paused_until && new Date(conversation.ai_paused_until) > new Date();
-  if (!s.agent || paused || !aiAvailable(store) || !windowOpen(conversation)) {
+  if (!s.agent || paused || !aiAvailable(store) || !canMessageFreely(store, conversation)) {
     await query(`UPDATE conversations SET needs_human=true WHERE id=$1`, [conversation.id]);
     return;
   }

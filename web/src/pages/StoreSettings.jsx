@@ -4,7 +4,9 @@ import { useApi, post, patch, put, del } from "../lib/api.js";
 import { useSession } from "../lib/session.jsx";
 import { useStoreSettings } from "../lib/useStoreSettings.js";
 import { dateTime } from "../lib/format.js";
-import { Card, Badge, Button, Field, Input, Select, Textarea, Toggle, Tabs, Table, Loading, ErrorBox, useAction } from "../components/ui.jsx";
+import { Send, Smartphone, Unlink } from "lucide-react";
+import { Card, Badge, Button, Empty, Field, Input, Select, Textarea, Toggle, Tabs, Table, Loading, ErrorBox, useAction } from "../components/ui.jsx";
+import WhatsAppConnect, { ProviderBadge, unlinkQr } from "../components/WhatsAppConnect.jsx";
 
 function CopyField({ label, value }) {
   return (
@@ -20,77 +22,68 @@ function CopyField({ label, value }) {
 }
 
 function WhatsAppTab({ data, reload }) {
-  const [f, setF] = useState({ phoneNumberId: "", wabaId: "", accessToken: "", appSecret: "" });
   const [testPhone, setTestPhone] = useState("");
   const numbers = useApi("/whatsapp-numbers");
   const [run, busy] = useAction();
   const id = data.store.id;
   const wa = data.whatsapp;
+  const gateway = wa?.provider === "gateway";
+  const done = () => {
+    reload();
+    numbers.reload?.();
+  };
   return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <Card title="Linked number">
+    <div className="grid gap-4 xl:grid-cols-[1fr_1.4fr]">
+      <Card title="Linked number" icon={Smartphone}>
         {wa ? (
-          <div className="space-y-3 text-sm">
-            <div className="text-lg font-semibold">{wa.display_number}</div>
-            <div>
-              {wa.verified_name} · Quality <Badge tone={wa.quality_rating === "GREEN" ? "green" : wa.quality_rating === "RED" ? "red" : "amber"}>{wa.quality_rating || "unknown"}</Badge> · Limit {wa.messaging_limit || "—"}
+          <div className="space-y-4 text-sm">
+            <div className="flex items-center gap-3">
+              <div className="brand-gradient flex h-12 w-12 items-center justify-center rounded-2xl text-white shadow-glow">
+                <Smartphone className="h-6 w-6" />
+              </div>
+              <div>
+                <div className="text-lg font-bold tracking-tight">{wa.display_number || (gateway ? "Waiting for QR scan" : wa.phone_number_id)}</div>
+                <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                  <ProviderBadge provider={wa.provider} status={wa.status} />
+                  {!gateway && (
+                    <Badge tone={wa.quality_rating === "GREEN" ? "green" : wa.quality_rating === "RED" ? "red" : "amber"}>Quality {wa.quality_rating || "unknown"}</Badge>
+                  )}
+                </div>
+              </div>
             </div>
-            <CopyField label="Webhook callback URL (Meta app → WhatsApp → Configuration)" value={wa.webhook_url} />
-            <CopyField label="Verify token" value={wa.verify_token} />
-            <p className="text-xs text-gray-500">Subscribe the webhook to the “messages”, “message_template_status_update” and “phone_number_quality_update” fields.</p>
+            {!gateway && (
+              <>
+                <div className="text-gray-500">
+                  {wa.verified_name} · Limit {wa.messaging_limit || "—"}
+                </div>
+                <CopyField label="Webhook callback URL (Meta app → WhatsApp → Configuration)" value={wa.webhook_url} />
+                <CopyField label="Verify token" value={wa.verify_token} />
+                <p className="text-xs text-gray-500">Subscribe the webhook to the “messages”, “message_template_status_update” and “phone_number_quality_update” fields.</p>
+              </>
+            )}
+            {gateway && (
+              <p className="text-xs text-gray-500">
+                Messages go out through your phone's WhatsApp, like WhatsApp Web. Buttons are sent as numbered options (customers reply 1, 2…). Keep the phone online now and then so the link stays active.
+              </p>
+            )}
             <div className="flex gap-2">
-              <Input placeholder="Send hello_world test to…" value={testPhone} onChange={(e) => setTestPhone(e.target.value)} />
+              <Input placeholder="Send a test message to…" value={testPhone} onChange={(e) => setTestPhone(e.target.value)} />
               <Button variant="secondary" loading={busy} onClick={() => run(() => post(`/stores/${id}/whatsapp/test`, { phone: testPhone }), "Test message sent")}>
-                Test
+                <Send className="h-4 w-4" /> Test
               </Button>
             </div>
-            <Button variant="ghost" onClick={() => confirm("Unlink this number from the store?") && run(() => del(`/stores/${id}/whatsapp`), "Unlinked").then(reload)}>
-              Unlink number
+            <Button
+              variant="ghost"
+              onClick={() => confirm(gateway ? "Log this phone out and unlink it?" : "Unlink this number from the store?") && run(() => (gateway ? unlinkQr(id) : del(`/stores/${id}/whatsapp`)), "Unlinked").then(done)}
+            >
+              <Unlink className="h-4 w-4" /> {gateway ? "Log out & unlink" : "Unlink number"}
             </Button>
           </div>
         ) : (
-          <p className="text-sm text-amber-600">No WhatsApp number linked yet. Messages can't be sent until you link one.</p>
+          <Empty title="No WhatsApp number yet">Messages can't be sent until you connect one. Pick a method on the right.</Empty>
         )}
       </Card>
-      <Card title={wa ? "Replace number" : "Link a WhatsApp Cloud API number"}>
-        <div className="space-y-3">
-          {numbers.data?.length > 0 && (
-            <Field label="Use a number already in this account" hint="Several stores can share one number.">
-              <div className="flex gap-2">
-                <Select id="existing" defaultValue="">
-                  <option value="">Choose…</option>
-                  {numbers.data.map((n) => (
-                    <option key={n.id} value={n.id}>
-                      {n.display_number} ({(n.stores || []).join(", ") || "unused"})
-                    </option>
-                  ))}
-                </Select>
-                <Button variant="secondary" onClick={() => {
-                  const v = document.getElementById("existing").value;
-                  if (v) run(() => post(`/stores/${id}/whatsapp`, { numberId: Number(v) }), "Number linked").then(reload);
-                }}>
-                  Use
-                </Button>
-              </div>
-            </Field>
-          )}
-          <Field label="Phone number ID">
-            <Input value={f.phoneNumberId} onChange={(e) => setF({ ...f, phoneNumberId: e.target.value })} />
-          </Field>
-          <Field label="WhatsApp Business Account ID">
-            <Input value={f.wabaId} onChange={(e) => setF({ ...f, wabaId: e.target.value })} />
-          </Field>
-          <Field label="Permanent access token" hint="System user token with whatsapp_business_messaging and whatsapp_business_management.">
-            <Input type="password" value={f.accessToken} onChange={(e) => setF({ ...f, accessToken: e.target.value })} />
-          </Field>
-          <Field label="App secret (only if this number belongs to your own Meta app)" hint="Leave empty to use the platform's Meta app.">
-            <Input type="password" value={f.appSecret} onChange={(e) => setF({ ...f, appSecret: e.target.value })} />
-          </Field>
-          <Button loading={busy} onClick={() => run(() => post(`/stores/${id}/whatsapp`, f), "Number linked. Default templates are being submitted to Meta.").then(reload)}>
-            Link number
-          </Button>
-        </div>
-      </Card>
+      <WhatsAppConnect storeId={id} numbers={numbers.data} run={run} busy={busy} onDone={done} hasNumber={!!wa && !(gateway && wa.status !== "active")} />
     </div>
   );
 }

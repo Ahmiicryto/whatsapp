@@ -7,6 +7,8 @@ import { computeMetrics } from "../../services/metrics.js";
 import { audit } from "../../services/audit.js";
 import { invalidateStore } from "../../services/stores.js";
 import { config } from "../../config.js";
+import { getPlatformReportSettings, savePlatformReportSettings, generatePlatformReport, deliverPlatformReport } from "../../services/reports.js";
+import { normalizePhone } from "../../lib/phone.js";
 
 const r = Router();
 r.use(requireSuperAdmin);
@@ -181,6 +183,60 @@ r.get(
           ORDER BY a.created_at DESC LIMIT 500`
       )
     );
+  })
+);
+
+// ---------- platform daily report for the super admin ----------
+
+r.get(
+  "/platform-report",
+  ah(async (_req, res) => {
+    const settings = await getPlatformReportSettings();
+    const senders = await many(
+      `SELECT s.id, s.name, w.display_number, w.provider FROM stores s JOIN whatsapp_numbers w ON w.id=s.whatsapp_number_id WHERE s.status='active' ORDER BY s.name`
+    );
+    const history = await many(`SELECT id, period_key, sent_to, created_at, data->'metrics'->'kpis' AS kpis FROM reports WHERE type='platform' ORDER BY id DESC LIMIT 14`);
+    res.json({ settings, senders, history });
+  })
+);
+
+r.put(
+  "/platform-report",
+  ah(async (req, res) => {
+    const b = z
+      .object({ enabled: z.boolean(), phone: z.string(), time: z.string().regex(/^\d{2}:\d{2}$/), senderStoreId: z.number().int().nullable() })
+      .parse(req.body);
+    if (b.enabled && !normalizePhone(b.phone, config.defaults.country)) throw badRequest("Enter a valid WhatsApp number");
+    await savePlatformReportSettings(b);
+    await audit({ user: req.user, action: "admin.platform_report.update", details: b });
+    res.json(await getPlatformReportSettings());
+  })
+);
+
+r.post(
+  "/platform-report/send",
+  ah(async (_req, res) => {
+    const report = await generatePlatformReport({ force: true });
+    let sent = [];
+    try {
+      sent = await deliverPlatformReport(report);
+    } catch (err) {
+      throw badRequest(err.message);
+    }
+    const last = sent[sent.length - 1];
+    if (last && !last.ok) throw badRequest(last.error);
+    res.json({ id: report.id, sent });
+  })
+);
+
+r.get(
+  "/platform-report/:id/pdf",
+  ah(async (req, res) => {
+    const row = await one(`SELECT pdf, period_key FROM reports WHERE id=$1 AND type='platform'`, [req.params.id]);
+    if (!row?.pdf) throw notFound();
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="platform-report-${row.period_key}.pdf"`);
+    res.send(row.pdf);
   })
 );
 

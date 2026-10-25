@@ -20,6 +20,9 @@ One platform that links many Shopify stores to WhatsApp and runs them on Render.
 - **Owner reports**: daily, weekly and monthly PDF reports with charts, sent to owner WhatsApp numbers, plus instant alerts (high value order, high risk, failed-message spike, number quality drop).
 - **Multiple stores per user**: each store has its own Shopify connection, WhatsApp number, templates, settings, AI keys and reports. Users get roles (owner, admin, agent, viewer), optionally limited to specific stores.
 - **Super admin**: sees every account, store, order, message and job; can suspend accounts, open any account, and impersonate a user (every impersonation is logged).
+- **WhatsApp connection, three ways**: **Connect with Facebook** (Meta's official Embedded Signup, including the "keep using the WhatsApp Business app" QR coexistence flow), **Scan QR code** (WhatsApp Web style through the optional gateway service; unofficial), or paste Cloud API details by hand.
+- **Product catalog with photos**: products, variant images, prices and stock are imported from Shopify and kept in sync by webhooks. Confirmation messages use the exact variant photo.
+- **Personal daily report**: every user can add their WhatsApp number under **My profile** and get one daily PDF covering all their stores. The super admin gets a daily **platform report** covering every business.
 - **Portal**: dashboards with charts, orders, a shared WhatsApp inbox, customers, marketing, a template builder that submits to Meta, automations, reports, stores, team, and an audit log.
 
 ## Architecture
@@ -98,13 +101,41 @@ Don't use free instances. They sleep, so webhooks arrive late and reminders and 
      After the merchant approves in Shopify, the store links itself: to the signed-in account, to its previous account on a reinstall, or through a one-click "Link your store" page after signing in or signing up. Webhooks are registered and the last 30 days of orders imported automatically.
    - **Older stores:** if the store has a legacy custom app with an Admin token (`shpat_…`), use the **Custom app token** tab instead.
    - In Shopify checkout settings, make the phone number required.
-2. **Store → WhatsApp**: enter the Phone number ID, the WhatsApp Business Account ID and a permanent System User token from Meta Business Settings.
+2. **Store → WhatsApp**: pick one of the three ways to connect (see [Connecting WhatsApp](#connecting-whatsapp)). For **Enter API details**: the Phone number ID, the WhatsApp Business Account ID and a permanent System User token from Meta Business Settings.
    - In your Meta app's WhatsApp configuration, set the webhook to the URL and verify token shown on that page.
    - Subscribe to the `messages`, `message_template_status_update` and `phone_number_quality_update` fields.
    - The default templates are submitted to Meta automatically. Approval usually takes minutes to hours; check **Templates**.
-3. **Reports → Add owner number**: choose which reports and alerts each number receives.
+3. **My profile**: add your WhatsApp number and turn on **Send me the daily report**, which covers all your stores. Use **Reports → Add owner number** for extra numbers, or for a report about a single store.
 4. **Automations**: choose which orders get confirmations, reminder timings, address thresholds, tracking messages, abandoned carts, win-back, quiet hours and alerts.
 5. **Store → AI & keys**: knowledge base for the AI agent, tone, provider, and optional per-store OpenAI, Gemini or Google keys.
+
+## Connecting WhatsApp
+
+**1. Connect with Facebook (official, recommended).** The merchant signs in with Facebook in a popup, picks or creates the WhatsApp Business account and number, and the store is linked; no tokens are copied by hand. With **Keep using the WhatsApp Business app** on, Meta shows a QR code that the merchant scans with the WhatsApp Business app, so chats stay on the phone and the API works at the same time ("coexistence").
+- Your Meta app must be a **Tech Provider** (Meta App Dashboard → WhatsApp → Quickstart → become a Tech Provider) with the WhatsApp product added and **Facebook Login for Business** set up.
+- In **Facebook Login for Business → Configurations**, create a configuration of type *WhatsApp Embedded Signup*, then copy its **Configuration ID** into `META_EMBEDDED_SIGNUP_CONFIG_ID`.
+- Add your domain to the app's **App domains** and **Allowed domains for the JavaScript SDK**.
+- Also needed: `META_APP_ID`, `META_APP_SECRET`, and the platform webhook (`/webhooks/whatsapp`) subscribed in the Meta app.
+
+**2. Scan QR code (WhatsApp Web style, unofficial).** Links any normal WhatsApp or WhatsApp Business number with no Meta setup, template approval or per-message fees. Buttons are sent as numbered options (the customer replies "1" to confirm), and voice notes and location pins still work.
+- **Risk:** this is not an official API. WhatsApp can ban numbers that send bulk or unwanted messages. Use it for order updates to your own customers, and use the official option for marketing.
+- It needs the small always-on **gateway** service in `gateway/`. Vercel can't host it, because it keeps a live connection open. Deploy it on Render:
+  1. Render → **New → Web Service** → this repo, **Root Directory** `gateway`, build `npm install`, start `npm start`, plan *Starter*. Or use the `wa-commerce-gateway` service in `render.yaml`.
+  2. Env vars:
+     - `GATEWAY_SECRET`: any long random string.
+     - `APP_WEBHOOK_URL`: `https://YOUR-DOMAIN/webhooks/gateway`.
+     - `DATABASE_URL`: the same database as the app (Neon is fine).
+     - `DATABASE_SSL=true`.
+     Login sessions are stored there, so restarts don't log the phone out.
+  3. In the main app (Vercel or Render), set `GATEWAY_URL` to the gateway's URL (e.g. `https://wa-commerce-gateway.onrender.com`) and set `GATEWAY_SECRET` to the same value. Redeploy.
+  4. Open **Store → WhatsApp → Scan QR code** and scan with **WhatsApp → Linked devices → Link a device**. The store's current number keeps working until the scan succeeds.
+
+**3. Enter API details**: paste the Phone number ID, WABA ID and a permanent token yourself.
+
+## Reports for owners and the super admin
+
+- **Store owners and team members:** **My profile** → WhatsApp number → **Send me the daily report**. The report covers every store in the business and is sent at the report time from the store's WhatsApp number (Cloud or QR). **Send me a sample now** sends one immediately.
+- **Super admin:** **Super admin → Overview → Your daily platform report**. Set your number, the time (in `DEFAULT_TIMEZONE`) and which store's number sends it. You can also set `PLATFORM_REPORT_PHONE` as the default number. **Send now** sends one immediately, and past reports can be downloaded as PDFs.
 
 ## Local development
 

@@ -202,3 +202,24 @@ export async function uploadHeaderExample(wa, buffer, mime) {
   if (!res.ok) raise(res, "Upload failed");
   return res.json.h;
 }
+
+// ---------------------------------------------------------------- Embedded Signup (official QR / Facebook login)
+
+/** Exchanges the Embedded Signup code for a business integration token. */
+export async function exchangeSignupCode(code) {
+  if (!config.meta.appId || !config.meta.appSecret) throw new WhatsAppError("META_APP_ID and META_APP_SECRET are required for Embedded Signup");
+  const params = new URLSearchParams({ client_id: config.meta.appId, client_secret: config.meta.appSecret, code });
+  const res = await requestJson(`${graph()}/oauth/access_token?${params}`);
+  if (!res.ok || !res.json.access_token) raise(res, "Could not finish WhatsApp signup");
+  return res.json.access_token;
+}
+
+/** Registers a Cloud API number (not needed for numbers that stay on the WhatsApp Business app). */
+export async function registerNumber(wa, pin) {
+  const res = await requestJson(`${graph()}/${wa.phoneNumberId}/register`, {
+    method: "POST",
+    headers: authHeaders(wa.token),
+    body: { messaging_product: "whatsapp", pin },
+  });
+  if (!res.ok) raise(res, "Number registration failed");
+}

@@ -1,15 +1,154 @@
 @import "tailwindcss";
+@import "@fontsource-variable/plus-jakarta-sans";
 
+/* WhatsApp Emerald theme: emerald + WhatsApp green on cool slate, deep navy chrome. */
 @theme {
-  --color-brand-50: #f0fdf4;
-  --color-brand-100: #dcfce7;
-  --color-brand-500: #22c55e;
-  --color-brand-600: #16a34a;
-  --color-brand-700: #15803d;
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+  --color-brand-50: #ecfdf5;
+  --color-brand-100: #d1fae5;
+  --color-brand-200: #a7f3d0;
+  --color-brand-300: #6ee7b7;
+  --color-brand-400: #34d399;
+  --color-brand-500: #25d366;
+  --color-brand-600: #059669;
+  --color-brand-700: #047857;
+  --color-brand-800: #065f46;
+  --color-brand-900: #064e3b;
+
+  /* cooler, slightly blue greys read more premium than neutral grey */
+  --color-gray-50: #f6f8fb;
+  --color-gray-100: #eef2f6;
+  --color-gray-200: #e2e8f0;
+  --color-gray-300: #cbd5e1;
+  --color-gray-400: #94a3b8;
+  --color-gray-500: #64748b;
+  --color-gray-600: #475569;
+  --color-gray-700: #334155;
+  --color-gray-800: #1e293b;
+  --color-gray-900: #0f172a;
+  --color-gray-950: #0a1120;
+
+  --color-navy-800: #10233a;
+  --color-navy-900: #0b1a2c;
+  --color-navy-950: #07111f;
+
+  --font-sans: "Plus Jakarta Sans Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+
+  --shadow-soft: 0 1px 2px rgb(15 23 42 / 0.04), 0 4px 12px -2px rgb(15 23 42 / 0.06), 0 12px 32px -8px rgb(15 23 42 / 0.08);
+  --shadow-lift: 0 2px 4px rgb(15 23 42 / 0.05), 0 12px 28px -6px rgb(15 23 42 / 0.14), 0 32px 64px -16px rgb(15 23 42 / 0.18);
+  --shadow-glow: 0 8px 24px -6px rgb(5 150 105 / 0.45);
+
+  --animate-shimmer: shimmer 1.6s ease-in-out infinite;
+  --animate-rise: rise 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  @keyframes shimmer {
+    0% { background-position: 100% 0; }
+    100% { background-position: -100% 0; }
+  }
+  @keyframes rise {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+:root {
+  /* Native UI (scrollbars, form controls, canvas) follows the system theme. */
+  color-scheme: light dark;
+  /* Keep the fallback font at the same x-height while Plus Jakarta Sans loads. */
+  font-size-adjust: from-font;
 }
 
 html, body, #root { height: 100%; }
-body { @apply bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100 antialiased; }
-.wa-chat-bg { background-color: #efeae2; }
-@media (prefers-color-scheme: dark) { .wa-chat-bg { background-color: #0b141a; } }
+body {
+  @apply bg-gray-50 text-gray-900 antialiased dark:bg-gray-950 dark:text-gray-100;
+  background-image:
+    radial-gradient(60rem 30rem at 110% -10%, rgb(37 211 102 / 0.08), transparent 60%),
+    radial-gradient(40rem 24rem at -10% 110%, rgb(5 150 105 / 0.06), transparent 60%);
+  background-attachment: fixed;
+}
+
+/* Glass surface for cards and bars */
+.glass {
+  background: rgb(255 255 255 / 0.78);
+  backdrop-filter: blur(14px) saturate(1.4);
+  -webkit-backdrop-filter: blur(14px) saturate(1.4);
+}
+@media (prefers-color-scheme: dark) {
+  .glass { background: rgb(15 23 42 / 0.72); }
+}
+
+.brand-gradient { background-image: linear-gradient(135deg in oklab, #25d366, #059669 55%, #065f46); }
+.text-gradient {
+  background-image: linear-gradient(90deg in oklab, #059669, #25d366);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.skeleton {
+  background-image: linear-gradient(90deg in oklab, var(--color-gray-100) 25%, var(--color-gray-200) 37%, var(--color-gray-100) 63%);
+  background-size: 400% 100%;
+  animation: var(--animate-shimmer);
+}
+@media (prefers-color-scheme: dark) {
+  .skeleton { background-image: linear-gradient(90deg in oklab, var(--color-gray-800) 25%, var(--color-gray-700) 37%, var(--color-gray-800) 63%); }
+}
+
+/* ---------- native <dialog> modal with top-layer enter/exit transitions ---------- */
+dialog.modal {
+  margin: auto;
+  margin-top: 8vh;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  max-height: 86vh;
+  overflow: visible;
+  opacity: 0;
+  transform: translateY(12px) scale(0.97);
+  transition-property: opacity, transform, display, overlay;
+  transition-duration: 0.22s;
+  transition-timing-function: cubic-bezier(0.2, 0.7, 0.2, 1);
+  transition-behavior: allow-discrete;
+
+  &::backdrop {
+    background-color: rgb(7 17 31 / 0);
+    backdrop-filter: blur(0);
+    transition-property: background-color, backdrop-filter, display, overlay;
+    transition-duration: 0.22s;
+    transition-behavior: allow-discrete;
+  }
+}
+/* data-closing lets the exit animate while the dialog is still in the top layer (Safari/Firefox) */
+dialog.modal[open]:where(:not([data-closing])) {
+  opacity: 1;
+  transform: none;
+  @starting-style {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  &::backdrop {
+    background-color: rgb(7 17 31 / 0.55);
+    backdrop-filter: blur(4px);
+    @starting-style {
+      background-color: rgb(7 17 31 / 0);
+      backdrop-filter: blur(0);
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  dialog.modal, dialog.modal::backdrop { transition-duration: 0.01s; transform: none; }
+  dialog.modal[open] { @starting-style { transform: none; } }
+  .skeleton { animation: none; }
+  .animate-rise { animation: none; }
+}
+
+.wa-chat-bg {
+  background-color: #efeae2;
+  background-image: radial-gradient(rgb(0 0 0 / 0.035) 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+@media (prefers-color-scheme: dark) {
+  .wa-chat-bg { background-color: #0b141a; background-image: radial-gradient(rgb(255 255 255 / 0.03) 1px, transparent 1px); }
+}
+
+* { scrollbar-width: thin; scrollbar-color: var(--color-gray-300) transparent; }
+@media (prefers-color-scheme: dark) { * { scrollbar-color: var(--color-gray-700) transparent; } }

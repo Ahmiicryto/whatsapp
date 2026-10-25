@@ -9,6 +9,7 @@ import { enqueue } from "../queue/queue.js";
 import { verifyShopifyHmac } from "../shopify/webhooks.js";
 import { verifyOAuthQuery, exchangeCodeForToken, isValidShopDomain, normalizeShopDomain, buildInstallUrl } from "../shopify/oauth.js";
 import { verifyMetaSignature } from "../whatsapp/webhookParser.js";
+import { verifyGatewaySignature } from "../whatsapp/gateway.js";
 import { resolveShortLink } from "../services/links.js";
 import { fetchStaticMap } from "../google/address.js";
 import { invalidateStore } from "../services/stores.js";
@@ -112,6 +113,17 @@ r.post(
     const n = await one(`SELECT app_secret_enc FROM whatsapp_numbers WHERE webhook_key=$1`, [req.params.key]);
     if (!n) return res.status(404).send("unknown");
     return acceptWa(req, res, n.app_secret_enc ? decrypt(n.app_secret_enc) : config.meta.appSecret);
+  })
+);
+
+// ---------------------------------------------------------------- QR gateway (WhatsApp Web) events
+
+r.post(
+  "/webhooks/gateway",
+  ah(async (req, res) => {
+    if (!verifyGatewaySignature(req.rawBody, req.get("X-Gateway-Signature"))) return res.status(401).send("invalid signature");
+    for (const ev of req.body?.events || []) await enqueue("gateway.event", { ev }, { maxAttempts: 3 });
+    res.status(200).send("ok");
   })
 );
 

@@ -1,3 +1,4 @@
+import { BarChart3 } from "lucide-react";
 import { useState } from "react";
 import { useApi, post, put, del } from "../lib/api.js";
 import { useSession, useSingleStore } from "../lib/session.jsx";
@@ -68,6 +69,7 @@ export default function Reports() {
   return (
     <div className="space-y-4">
       <PageHeader
+        icon={BarChart3}
         title="Reports"
         subtitle="Daily, weekly and monthly reports with charts are sent to owner numbers on WhatsApp as a PDF."
         actions={

@@ -9,7 +9,7 @@ import { aiAvailable } from "../ai/provider.js";
 import { parseAddress } from "../ai/features.js";
 import { fillText } from "./settings.js";
 import { orderContext } from "./context.js";
-import { sendTemplate, sendSession, sendText, upsertConversation, windowOpen } from "./messaging.js";
+import { sendTemplate, sendSession, sendText, upsertConversation, windowOpen, canMessageFreely } from "./messaging.js";
 import { getOrder, getOrderItems, setOrderStatus, queueTags } from "./orders.js";
 import { applyCustomerAddress } from "./address.js";
 
@@ -109,13 +109,13 @@ async function askToConfirm(store, order, conversation, intro) {
 
 export async function confirmOrder(store, order, conversation, { source = "customer" } = {}) {
   if (order.status === "confirmed") {
-    if (conversation && windowOpen(conversation)) {
+    if (conversation && canMessageFreely(store, conversation)) {
       await sendText(store, { to: order.phone_e164, conversation, orderId: order.id, kind: "confirmed_ack", body: `Your order ${order.name} is already confirmed ✅` });
     }
     return order;
   }
   if (["cancelled", "cancelled_by_customer"].includes(order.status)) {
-    if (conversation && windowOpen(conversation)) {
+    if (conversation && canMessageFreely(store, conversation)) {
       await sendText(store, { to: order.phone_e164, conversation, orderId: order.id, kind: "confirmed_ack", body: `Order ${order.name} was cancelled. Please reply here if you'd like us to help you place it again.` });
     }
     return order;
@@ -194,7 +194,7 @@ const CANCEL_REASONS = [
 
 export async function requestCancel(store, order, conversation) {
   if (["cancelled", "cancelled_by_customer"].includes(order.status)) return;
-  if (!store.settings.confirmation.askCancelReason || !conversation || !windowOpen(conversation)) {
+  if (!store.settings.confirmation.askCancelReason || !conversation || !canMessageFreely(store, conversation)) {
     return cancelByCustomer(store, order, conversation, "not_given");
   }
   await sendSession(store, {
@@ -226,7 +226,7 @@ export async function cancelByCustomer(store, order, conversation, reason) {
   if (store.settings.confirmation.autoCancelInShopify) {
     await enqueue("shopify.cancel", { storeId: store.id, orderId: order.id }, { singletonKey: `order:${order.id}:shopify-cancel` });
   }
-  if (conversation && windowOpen(conversation)) {
+  if (conversation && canMessageFreely(store, conversation)) {
     await sendText(store, {
       to: order.phone_e164,
       conversation,
@@ -244,12 +244,12 @@ export async function cancelByCustomer(store, order, conversation, reason) {
 export async function sendAddressCheck(store, order, conversation, { intro } = {}) {
   conversation = conversation || (await conversationFor(store, order));
   const text = order.address_text || formatAddress(order.shipping_address) || "(no address)";
-  if (order.address_status === "needs_update" && windowOpen(conversation)) {
+  if (order.address_status === "needs_update" && canMessageFreely(store, conversation)) {
     return startAddressUpdate(store, order, conversation, {
       intro: `${intro ? `${intro}\n\n` : ""}We couldn't fully locate your delivery address:\n📍 ${text}`,
     });
   }
-  if (!windowOpen(conversation)) {
+  if (!canMessageFreely(store, conversation)) {
     // Outside the 24h window we need the approved template.
     const items = await getOrderItems(order.id);
     await sendTemplate(store, {

@@ -2,20 +2,58 @@ import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useSession } from "../lib/session.jsx";
 import { post } from "../lib/api.js";
+import {
+  BarChart3,
+  Boxes,
+  LayoutDashboard,
+  LogOut,
+  Megaphone,
+  Menu,
+  MessageCircle,
+  Package,
+  Puzzle,
+  ShieldCheck,
+  Store,
+  UserCircle2,
+  Users,
+  UsersRound,
+  Workflow,
+} from "lucide-react";
 import { cx, Select } from "./ui.jsx";
 
 const NAV = [
-  { to: "/", label: "Dashboard", icon: "📊", end: true },
-  { to: "/orders", label: "Orders", icon: "🧾" },
-  { to: "/inbox", label: "Inbox", icon: "💬" },
-  { to: "/customers", label: "Customers", icon: "👥" },
-  { to: "/marketing", label: "Marketing", icon: "📣", min: "admin" },
-  { to: "/templates", label: "Templates", icon: "🧩", min: "admin" },
-  { to: "/automations", label: "Automations", icon: "⚙️", min: "admin" },
-  { to: "/reports", label: "Reports", icon: "📈" },
-  { to: "/stores", label: "Stores", icon: "🏬" },
-  { to: "/team", label: "Team & logs", icon: "🔐", min: "admin" },
+  { section: "Overview" },
+  { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
+  { to: "/orders", label: "Orders", icon: Package },
+  { to: "/inbox", label: "Inbox", icon: MessageCircle },
+  { to: "/customers", label: "Customers", icon: Users },
+  { to: "/products", label: "Products", icon: Boxes },
+  { section: "Grow", min: "admin" },
+  { to: "/marketing", label: "Marketing", icon: Megaphone, min: "admin" },
+  { to: "/templates", label: "Templates", icon: Puzzle, min: "admin" },
+  { to: "/automations", label: "Automations", icon: Workflow, min: "admin" },
+  { section: "Manage" },
+  { to: "/reports", label: "Reports", icon: BarChart3 },
+  { to: "/stores", label: "Stores", icon: Store },
+  { to: "/team", label: "Team & logs", icon: UsersRound, min: "admin" },
+  { to: "/profile", label: "My profile", icon: UserCircle2 },
 ];
+
+export function Logo({ className = "h-9 w-9" }) {
+  return (
+    <svg className={className} viewBox="0 0 40 40" aria-hidden>
+      <defs>
+        <linearGradient id="logo-g" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#25d366" />
+          <stop offset="1" stopColor="#047857" />
+        </linearGradient>
+      </defs>
+      <rect width="40" height="40" rx="12" fill="url(#logo-g)" />
+      <path d="M20 9.5a10.5 10.5 0 0 0-9 15.9L9.6 30.5l5.3-1.4A10.5 10.5 0 1 0 20 9.5z" fill="white" />
+      <path d="M15.2 20.3l3.1 3.1 6.6-6.6" stroke="#059669" strokeWidth="2.6" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
 
 export default function Layout() {
   const { me, stores, storeId, setStoreId, can, refresh } = useSession();
@@ -41,98 +79,114 @@ export default function Layout() {
     navigate("/admin");
   }
 
+  const linkCls = ({ isActive }) =>
+    cx(
+      "group relative flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition",
+      isActive ? "bg-white/10 text-white shadow-[inset_0_0_0_1px_rgb(255_255_255/0.08)]" : "text-slate-400 hover:bg-white/5 hover:text-white"
+    );
   const nav = (
-    <nav className="flex flex-col gap-0.5">
-      {NAV.filter((n) => !n.min || can(n.min)).map((n) => (
-        <NavLink
-          key={n.to}
-          to={n.to}
-          end={n.end}
-          onClick={() => setOpen(false)}
-          className={({ isActive }) =>
-            cx(
-              "flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition",
-              isActive ? "bg-brand-50 font-medium text-brand-700 dark:bg-brand-700/20 dark:text-brand-500" : "text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800"
-            )
-          }
-        >
-          <span className="w-5 text-center">{n.icon}</span>
-          {n.label}
-        </NavLink>
-      ))}
+    <nav className="flex flex-col gap-0.5" aria-label="Main">
+      {NAV.filter((n) => !n.min || can(n.min)).map((n) =>
+        n.section ? (
+          <div key={n.section} className="mb-1 mt-4 px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500 first:mt-0">
+            {n.section}
+          </div>
+        ) : (
+          <NavLink key={n.to} to={n.to} end={n.end} onClick={() => setOpen(false)} className={linkCls}>
+            {({ isActive }) => (
+              <>
+                {isActive && <span className="brand-gradient absolute inset-y-1.5 left-0 w-1 rounded-full" />}
+                <n.icon className={cx("h-[18px] w-[18px] shrink-0", isActive ? "text-brand-400" : "text-slate-500 group-hover:text-slate-300")} aria-hidden />
+                {n.label}
+              </>
+            )}
+          </NavLink>
+        )
+      )}
       {me?.user?.isSuperAdmin && (
         <NavLink
           to="/admin"
           onClick={() => setOpen(false)}
-          className={({ isActive }) => cx("mt-2 flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm", isActive ? "bg-purple-50 font-medium text-purple-700 dark:bg-purple-900/30" : "text-purple-700 hover:bg-purple-50 dark:text-purple-300 dark:hover:bg-purple-900/20")}
+          className={({ isActive }) =>
+            cx("mt-4 flex items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium ring-1 transition", isActive ? "bg-violet-500/20 text-violet-200 ring-violet-400/30" : "text-violet-300 ring-violet-400/15 hover:bg-violet-500/10")
+          }
         >
-          <span className="w-5 text-center">🛡️</span>Super admin
+          <ShieldCheck className="h-[18px] w-[18px]" aria-hidden />
+          Super admin
         </NavLink>
       )}
     </nav>
   );
 
+  const initials = (me?.user?.name || me?.user?.email || "?").split(/[\s@.]+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
+  const dark = "border-white/10 bg-white/5 text-slate-100 hover:border-white/20 focus:border-brand-400 dark:border-white/10 dark:bg-white/5 [&>option]:text-gray-900";
+
   return (
     <div className="flex min-h-full">
       <aside
         className={cx(
-          "fixed inset-y-0 left-0 z-40 w-64 transform border-r border-gray-200 bg-white p-4 transition dark:border-gray-800 dark:bg-gray-900 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0",
+          "fixed inset-y-0 left-0 z-40 flex w-68 transform flex-col bg-navy-950 text-white transition duration-300 lg:sticky lg:top-0 lg:h-screen lg:translate-x-0",
           open ? "translate-x-0" : "-translate-x-full"
         )}
+        style={{ backgroundImage: "radial-gradient(28rem 18rem at 0% 0%, rgb(37 211 102 / 0.16), transparent 60%), radial-gradient(20rem 16rem at 100% 100%, rgb(5 150 105 / 0.14), transparent 60%)" }}
       >
-        <div className="mb-5 flex items-center gap-2 px-1">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-600 text-white">✓</div>
+        <div className="flex items-center gap-3 px-5 pb-4 pt-5">
+          <Logo />
           <div>
-            <div className="text-sm font-semibold leading-tight">WA Commerce</div>
-            <div className="text-xs text-gray-500">Shopify × WhatsApp</div>
+            <div className="text-[15px] font-bold leading-tight tracking-tight">WA Commerce</div>
+            <div className="text-xs text-slate-400">Shopify × WhatsApp</div>
           </div>
         </div>
-        {me?.accounts?.length > 1 && (
-          <Select className="mb-3" value={me.accountId || ""} onChange={(e) => switchAccount(e.target.value)}>
-            {me.accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-                {a.viaSuperAdmin ? " (admin view)" : ""}
+        <div className="space-y-2 px-4 pb-3">
+          {me?.accounts?.length > 1 && (
+            <Select className={dark} value={me.accountId || ""} onChange={(e) => switchAccount(e.target.value)} aria-label="Business">
+              {me.accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                  {a.viaSuperAdmin ? " (admin view)" : ""}
+                </option>
+              ))}
+            </Select>
+          )}
+          <Select className={dark} value={storeId} onChange={(e) => setStoreId(e.target.value)} aria-label="Store">
+            <option value="all">All stores ({stores.length})</option>
+            {stores.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
               </option>
             ))}
           </Select>
-        )}
-        <Select className="mb-4" value={storeId} onChange={(e) => setStoreId(e.target.value)} aria-label="Store">
-          <option value="all">All stores ({stores.length})</option>
-          {stores.map((s) => (
-            <option key={s.id} value={s.id}>
-              {s.name}
-            </option>
-          ))}
-        </Select>
-        {nav}
-        <div className="absolute inset-x-4 bottom-4 border-t border-gray-100 pt-3 text-xs dark:border-gray-800">
-          <div className="truncate font-medium">{me?.user?.name || me?.user?.email}</div>
-          <div className="truncate text-gray-500">
-            {me?.user?.email} · {me?.role}
+        </div>
+        <div className="flex-1 overflow-y-auto px-3 pb-4">{nav}</div>
+        <div className="m-3 flex items-center gap-3 rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
+          <div className="brand-gradient flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-xs font-bold">{initials}</div>
+          <div className="min-w-0 flex-1 text-xs">
+            <div className="truncate font-semibold text-white">{me?.user?.name || me?.user?.email}</div>
+            <div className="truncate capitalize text-slate-400">{me?.user?.isSuperAdmin ? "Super admin" : me?.role}</div>
           </div>
-          <button onClick={logout} className="mt-2 text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">
-            Sign out
+          <button onClick={logout} className="rounded-lg p-2 text-slate-400 transition hover:bg-white/10 hover:text-white" aria-label="Sign out" title="Sign out">
+            <LogOut className="h-4 w-4" />
           </button>
         </div>
       </aside>
-      {open && <div className="fixed inset-0 z-30 bg-black/30 lg:hidden" onClick={() => setOpen(false)} />}
+      {open && <div className="fixed inset-0 z-30 bg-navy-950/50 backdrop-blur-sm lg:hidden" onClick={() => setOpen(false)} />}
       <div className="flex min-w-0 flex-1 flex-col">
         {me?.impersonating && (
-          <div className="flex items-center justify-between bg-purple-600 px-4 py-2 text-sm text-white">
+          <div className="flex items-center justify-between bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-2 text-sm text-white">
             <span>You are viewing the portal as {me.user.email}. Actions are logged.</span>
-            <button onClick={stopImpersonating} className="rounded bg-white/20 px-2 py-1 hover:bg-white/30">
+            <button onClick={stopImpersonating} className="rounded-lg bg-white/20 px-2 py-1 hover:bg-white/30">
               Stop impersonating
             </button>
           </div>
         )}
-        <header className="flex items-center gap-3 border-b border-gray-200 bg-white px-4 py-3 dark:border-gray-800 dark:bg-gray-900 lg:hidden">
-          <button onClick={() => setOpen(true)} className="text-xl" aria-label="Menu">
-            ☰
+        <header className="glass sticky top-0 z-20 flex items-center gap-3 border-b border-gray-200/70 px-4 py-3 dark:border-gray-800 lg:hidden">
+          <button onClick={() => setOpen(true)} className="rounded-lg p-1.5 hover:bg-gray-100 dark:hover:bg-gray-800" aria-label="Menu">
+            <Menu className="h-5 w-5" />
           </button>
-          <span className="font-semibold">WA Commerce</span>
+          <Logo className="h-7 w-7" />
+          <span className="font-bold tracking-tight">WA Commerce</span>
         </header>
-        <main className="mx-auto w-full max-w-7xl flex-1 p-4 lg:p-6">
+        <main className="mx-auto w-full max-w-7xl flex-1 p-4 lg:p-8">
           <Outlet />
         </main>
       </div>

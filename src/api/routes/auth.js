@@ -100,6 +100,11 @@ r.get(
         // exact URLs to paste into the Shopify app settings
         shopifyAppUrl: `${config.baseUrl}/shopify/install`,
         shopifyRedirectUrl: `${config.baseUrl}/shopify/callback`,
+        // WhatsApp connect options
+        metaAppId: config.meta.appId || null,
+        metaSignupConfigId: config.meta.embeddedSignupConfigId || null,
+        metaGraphVersion: config.meta.graphVersion,
+        qrGateway: !!(config.gateway.url && config.gateway.secret),
       },
     });
   })

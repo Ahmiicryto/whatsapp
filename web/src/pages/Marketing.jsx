@@ -1,3 +1,4 @@
+import { Megaphone } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApi, qs, post, put, del, fileToBase64 } from "../lib/api.js";
@@ -244,6 +245,7 @@ export default function Marketing() {
   return (
     <div className="space-y-4">
       <PageHeader
+        icon={Megaphone}
         title="Marketing"
         subtitle={`Campaigns and audiences for ${store.name}. Only customers who opted in receive marketing messages.`}
         actions={

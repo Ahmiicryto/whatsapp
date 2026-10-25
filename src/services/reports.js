@@ -10,6 +10,8 @@ import { renderReportPdf } from "./reportPdf.js";
 import { getStoreContext } from "./stores.js";
 import { sendTemplate } from "./messaging.js";
 import { logger } from "../logger.js";
+import { config } from "../config.js";
+import { normalizePhone } from "../lib/phone.js";
 
 const TITLES = { daily: "Daily report", weekly: "Weekly report", monthly: "Monthly report" };
 
@@ -112,25 +114,7 @@ export async function deliverReport(reportId, { onlyContactId } = {}) {
       })();
   if (!sender?.wa) return [];
 
-  const d = report.data;
-  const k = d.metrics.kpis;
-  const m = d.metrics.messages;
-  const mediaId = await wa.uploadMedia(sender.wa, report.pdf, "application/pdf", `${d.title.replace(/\s+/g, "-")}-${report.period_key}.pdf`);
-  const ctx = {
-    __filename: `${d.title}-${report.period_key}.pdf`,
-    "report.pdf": { id: mediaId },
-    "report.title": d.title,
-    "alert.store": d.scopeName,
-    "report.date": d.periodLabel,
-    "report.orders": String(k.orders),
-    "report.revenue": formatMoney(k.revenue, d.currency),
-    "report.confirmed": `${k.confirmed} (${k.confirmation_rate}%)`,
-    "report.cancelled": String(Number(k.cancelled_by_customer) + Number(k.cancelled)),
-    "report.pending": String(k.awaiting),
-    "report.messages": String(m.sent),
-    "report.read": `${m.read} (${m.read_rate}%)`,
-    "report.summary": d.insights?.summary || `Delivery rate ${m.delivery_rate}%, ${k.no_response} orders without reply.`,
-  };
+  const ctx = await reportContext(sender, report);
   const sent = [...(report.sent_to || [])];
   for (const c of contacts) {
     try {
@@ -144,11 +128,130 @@ export async function deliverReport(reportId, { onlyContactId } = {}) {
   return sent;
 }
 
+/** Template context (numbers + PDF reference) for sending a report from `sender`. */
+async function reportContext(sender, report) {
+  const d = report.data;
+  const k = d.metrics.kpis;
+  const m = d.metrics.messages;
+  // Cloud API: upload the PDF once and send by media id. QR gateway: send the file itself.
+  const pdfRef =
+    sender.wa.provider === "gateway"
+      ? { base64: Buffer.from(report.pdf).toString("base64"), mime: "application/pdf" }
+      : { id: await wa.uploadMedia(sender.wa, report.pdf, "application/pdf", `${d.title.replace(/\s+/g, "-")}-${report.period_key}.pdf`) };
+  return {
+    __filename: `${d.title}-${report.period_key}.pdf`,
+    "report.pdf": pdfRef,
+    "report.title": d.title,
+    "alert.store": d.scopeName,
+    "report.date": d.periodLabel,
+    "report.orders": String(k.orders),
+    "report.revenue": formatMoney(k.revenue, d.currency),
+    "report.confirmed": `${k.confirmed} (${k.confirmation_rate}%)`,
+    "report.cancelled": String(Number(k.cancelled_by_customer) + Number(k.cancelled)),
+    "report.pending": String(k.awaiting),
+    "report.messages": String(m.sent),
+    "report.read": `${m.read} (${m.read_rate}%)`,
+    "report.summary": d.insights?.summary || `Delivery rate ${m.delivery_rate}%, ${k.no_response} orders without reply.`,
+  };
+}
+
+// ---------------------------------------------------------------- platform report (super admin)
+
+const PLATFORM_DEFAULTS = { enabled: false, phone: "", time: "22:00", senderStoreId: null };
+
+export async function getPlatformReportSettings() {
+  const row = await one(`SELECT value FROM platform_settings WHERE key='platform_report'`);
+  const v = { ...PLATFORM_DEFAULTS, ...(row?.value || {}) };
+  if (!v.phone && config.platformReportPhone) v.phone = config.platformReportPhone;
+  return v;
+}
+
+export async function savePlatformReportSettings(value) {
+  await query(
+    `INSERT INTO platform_settings (key, value) VALUES ('platform_report', $1) ON CONFLICT (key) DO UPDATE SET value=EXCLUDED.value, updated_at=now()`,
+    [{ ...PLATFORM_DEFAULTS, ...value }]
+  );
+}
+
+/** Daily report across every store on the platform, with a per-business table in the data. */
+export async function generatePlatformReport({ now = new Date(), force = false } = {}) {
+  const tz = config.defaults.timezone;
+  const period = reportPeriod("daily", tz, now);
+  const existing = await one(`SELECT * FROM reports WHERE type='platform' AND period_key=$1 ORDER BY id DESC LIMIT 1`, [period.key]);
+  if (existing && !force) return existing;
+  const [metrics, previous, trend] = await Promise.all([
+    computeMetrics({ storeIds: null, from: period.from, to: period.to, timezone: tz }),
+    computeMetrics({ storeIds: null, from: period.prevFrom, to: period.prevTo, timezone: tz }),
+    computeMetrics({ storeIds: null, from: addDays(period.from, -6), to: period.to, timezone: tz }),
+  ]);
+  const businesses = await many(
+    `SELECT a.name, count(o.id)::int AS orders, COALESCE(sum(o.total),0) AS revenue,
+            count(o.id) FILTER (WHERE o.status='confirmed' OR o.confirmed_at IS NOT NULL)::int AS confirmed
+       FROM accounts a LEFT JOIN stores s ON s.account_id=a.id
+       LEFT JOIN orders o ON o.store_id=s.id AND o.shopify_created_at >= $1 AND o.shopify_created_at < $2
+      GROUP BY a.id ORDER BY orders DESC LIMIT 20`,
+    [period.from, period.to]
+  );
+  const stores = await one(`SELECT count(*)::int AS n FROM stores WHERE status='active'`);
+  const data = {
+    title: "Platform daily report",
+    scopeName: `All businesses (${stores.n} stores)`,
+    periodLabel: period.label,
+    currency: config.defaults.currency,
+    pricingCurrency: "USD",
+    metrics,
+    previous: { kpis: previous.kpis, messages: previous.messages },
+    trend: trend.series,
+    insights: null,
+    businesses,
+  };
+  const pdf = await renderReportPdf(data);
+  if (existing) {
+    return one(`UPDATE reports SET data=$2, pdf=$3, sent_to='[]' WHERE id=$1 RETURNING *`, [existing.id, data, pdf]);
+  }
+  return one(`INSERT INTO reports (account_id, store_id, type, period_key, data, pdf) VALUES (NULL, NULL, 'platform', $1, $2, $3) RETURNING *`, [period.key, data, pdf]);
+}
+
+/** Sends the platform report to the super admin's WhatsApp number. */
+export async function deliverPlatformReport(report) {
+  const s = await getPlatformReportSettings();
+  const phone = normalizePhone(s.phone, config.defaults.country);
+  if (!phone) throw new Error("Set the super admin WhatsApp number for the platform report first");
+  const senderRow = s.senderStoreId
+    ? { id: s.senderStoreId }
+    : await one(`SELECT id FROM stores WHERE whatsapp_number_id IS NOT NULL AND status='active' ORDER BY id LIMIT 1`);
+  const sender = senderRow ? await getStoreContext(senderRow.id) : null;
+  if (!sender?.wa) throw new Error("No store with a connected WhatsApp number to send the report from");
+  const ctx = await reportContext(sender, report);
+  const sent = [...(report.sent_to || [])];
+  try {
+    await sendTemplate(sender, { kind: "daily_report", to: phone, ctx, messageKind: "report", name: "Super admin" });
+    sent.push({ to: phone, at: new Date().toISOString(), ok: true });
+  } catch (err) {
+    sent.push({ to: phone, at: new Date().toISOString(), ok: false, error: err.message });
+  }
+  await query(`UPDATE reports SET sent_to=$2 WHERE id=$1`, [report.id, JSON.stringify(sent)]);
+  return sent;
+}
+
+export async function runPlatformReport() {
+  const report = await generatePlatformReport();
+  if ((report.sent_to || []).some((x) => x.ok)) return;
+  await deliverPlatformReport(report);
+}
+
 /**
  * Cron (every 15 min): queue reports whose local send time has arrived.
  * Weekly reports go out on Mondays, monthly on the 1st (covering the previous period ending today).
  */
 export async function queueDueReports(now = new Date()) {
+  const platform = await getPlatformReportSettings();
+  if (platform.enabled && platform.phone) {
+    const p = zonedParts(now, config.defaults.timezone);
+    const cur = p.hour * 60 + p.minute;
+    const at = minutesOfDay(platform.time);
+    if (cur >= at && cur < at + 15) await enqueue("report.platform", {}, { singletonKey: `report:platform:${p.dateKey}` });
+  }
   const stores = await many(
     `SELECT s.id, s.account_id FROM stores s JOIN accounts a ON a.id=s.account_id WHERE s.status='active' AND a.status='active'`
   );

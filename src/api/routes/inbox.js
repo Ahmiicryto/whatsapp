@@ -4,7 +4,7 @@ import { one, many, query } from "../../db/pool.js";
 import { ah, badRequest } from "../../lib/errors.js";
 import { scopeStoreIds, assertRow, assertStore } from "../auth.js";
 import { getStoreContext } from "../../services/stores.js";
-import { sendText, sendSession, sendTemplate, windowOpen, upsertConversation } from "../../services/messaging.js";
+import { sendText, sendSession, sendTemplate, windowOpen, canMessageFreely, upsertConversation } from "../../services/messaging.js";
 import { customerContext } from "../../services/context.js";
 import * as wa from "../../whatsapp/cloudApi.js";
 import { agentReply } from "../../ai/features.js";
@@ -39,7 +39,10 @@ r.get(
         ORDER BY c.last_message_at DESC LIMIT 100`,
       params
     );
-    res.json(rows.map((c) => ({ ...c, window_open: windowOpen(c) })));
+    const gatewayStores = new Set(
+      (await many(`SELECT s.id FROM stores s JOIN whatsapp_numbers w ON w.id=s.whatsapp_number_id WHERE s.id = ANY($1) AND w.provider='gateway'`, [storeIds])).map((r) => r.id)
+    );
+    res.json(rows.map((c) => ({ ...c, window_open: gatewayStores.has(c.store_id) || windowOpen(c) })));
   })
 );
 
@@ -60,7 +63,8 @@ r.get(
       [conv.store_id, conv.phone_e164]
     );
     const templates = await many(`SELECT id, name, kind, category, body, variables, language FROM templates WHERE store_id=$1 AND status='APPROVED' ORDER BY kind`, [conv.store_id]);
-    res.json({ conversation: { ...conv, window_open: windowOpen(conv) }, messages: messages.reverse(), customer, orders, templates });
+    const store = await getStoreContext(conv.store_id);
+    res.json({ conversation: { ...conv, window_open: canMessageFreely(store, conv) }, messages: messages.reverse(), customer, orders, templates });
   })
 );
 

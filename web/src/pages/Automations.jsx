@@ -1,3 +1,4 @@
+import { Workflow } from "lucide-react";
 import { useSingleStore } from "../lib/session.jsx";
 import { useStoreSettings } from "../lib/useStoreSettings.js";
 import { Card, Button, PageHeader, Field, Input, Select, Textarea, Toggle, Loading, Empty, useAction } from "../components/ui.jsx";
@@ -34,7 +35,7 @@ export default function Automations() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Automations" subtitle={`What happens automatically for ${store.name}`} />
+      <PageHeader icon={Workflow} title="Automations" subtitle={`What happens automatically for ${store.name}`} />
       <div className="grid gap-4 lg:grid-cols-2">
         <Section title="✅ Order confirmation" description="Sent when a new order arrives, with product image, items, price, address and Confirm / Change address / Cancel buttons." onSave={save(["confirmation"])} busy={busy}>
           <Flag s={s} path="confirmation.enabled" label="Send WhatsApp confirmation for new orders" />

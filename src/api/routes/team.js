@@ -4,6 +4,9 @@ import { one, many, query } from "../../db/pool.js";
 import { ah, badRequest, notFound, forbidden } from "../../lib/errors.js";
 import { requireRole, hashPassword, accessibleStoreIds } from "../auth.js";
 import { audit } from "../../services/audit.js";
+import { normalizePhone } from "../../lib/phone.js";
+import { config } from "../../config.js";
+import { generateReport, deliverReport } from "../../services/reports.js";
 
 const r = Router();
 
@@ -86,6 +89,59 @@ r.delete(
     await query(`DELETE FROM memberships WHERE user_id=$1 AND account_id=$2`, [req.params.userId, req.accountId]);
     await query(`DELETE FROM sessions WHERE user_id=$1 AND active_account_id=$2`, [req.params.userId, req.accountId]);
     await audit({ user: req.user, accountId: req.accountId, action: "team.remove", target: String(req.params.userId) });
+    res.json({ ok: true });
+  })
+);
+
+// ---------- my profile: personal WhatsApp number + daily report for all my stores ----------
+
+r.get(
+  "/profile",
+  ah(async (req, res) => {
+    const u = await one(`SELECT id, email, name, phone_e164 FROM users WHERE id=$1`, [req.user.id]);
+    const contact = req.accountId
+      ? await one(`SELECT id, reports, enabled FROM owner_contacts WHERE user_id=$1 AND account_id=$2 AND store_id IS NULL`, [req.user.id, req.accountId])
+      : null;
+    res.json({ ...u, dailyReport: !!contact?.enabled && contact.reports.includes("daily"), alerts: !!contact?.enabled && contact.reports.includes("alerts") });
+  })
+);
+
+r.put(
+  "/profile",
+  ah(async (req, res) => {
+    const b = z.object({ name: z.string().min(1).max(100), phone: z.string().optional().default(""), dailyReport: z.boolean(), alerts: z.boolean().default(true) }).parse(req.body);
+    const phone = b.phone ? normalizePhone(b.phone, config.defaults.country) : null;
+    if (b.phone && !phone) throw badRequest("Enter a valid WhatsApp number with country code, e.g. +92 300 1234567");
+    if ((b.dailyReport || b.alerts) && !phone) throw badRequest("Add your WhatsApp number to receive reports");
+    await query(`UPDATE users SET name=$2, phone_e164=$3 WHERE id=$1`, [req.user.id, b.name, phone]);
+    if (req.accountId) {
+      const reports = [b.dailyReport && "daily", b.alerts && "alerts"].filter(Boolean);
+      const existing = await one(`SELECT id FROM owner_contacts WHERE user_id=$1 AND account_id=$2 AND store_id IS NULL`, [req.user.id, req.accountId]);
+      if (existing) {
+        await query(`UPDATE owner_contacts SET name=$2, phone_e164=COALESCE($3, phone_e164), reports=$4, enabled=$5 WHERE id=$1`, [existing.id, b.name, phone, reports, reports.length > 0]);
+      } else if (reports.length) {
+        await query(
+          `INSERT INTO owner_contacts (account_id, store_id, user_id, name, phone_e164, reports) VALUES ($1, NULL, $2, $3, $4, $5)`,
+          [req.accountId, req.user.id, b.name, phone, reports]
+        );
+      }
+    }
+    res.json({ ok: true });
+  })
+);
+
+/** Send my own daily report now (the profile must be saved with the daily report on). */
+r.post(
+  "/profile/test-report",
+  ah(async (req, res) => {
+    const c = req.accountId ? await one(`SELECT id FROM owner_contacts WHERE user_id=$1 AND account_id=$2 AND store_id IS NULL AND enabled`, [req.user.id, req.accountId]) : null;
+    if (!c) throw badRequest("Save your WhatsApp number with the daily report turned on first");
+    const report = await generateReport({ accountId: req.accountId, storeId: null, type: "daily" });
+    if (!report) throw badRequest("No active store in this business yet");
+    const sent = await deliverReport(report.id, { onlyContactId: c.id });
+    if (!sent.length) throw badRequest("Nothing sent: connect a WhatsApp number to one of your stores first");
+    const last = sent[sent.length - 1];
+    if (!last.ok) throw badRequest(last.error);
     res.json({ ok: true });
   })
 );

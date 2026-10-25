@@ -1,3 +1,4 @@
+import { Users } from "lucide-react";
 import { useState } from "react";
 import { useApi, qs, patch, post } from "../lib/api.js";
 import { useSession, useSingleStore } from "../lib/session.jsx";
@@ -52,7 +53,7 @@ export default function Customers() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="Customers" subtitle="Synced from orders, checkouts and Shopify customers" actions={can("admin") && <Button variant="secondary" onClick={() => setImporting(true)}>Import CSV</Button>} />
+      <PageHeader icon={Users} title="Customers" subtitle="Synced from orders, checkouts and Shopify customers" actions={can("admin") && <Button variant="secondary" onClick={() => setImporting(true)}>Import CSV</Button>} />
       {notice && <div className="rounded-lg bg-brand-50 p-3 text-sm text-brand-700">{notice}</div>}
       {data?.rfm?.length > 0 && (
         <div className="flex flex-wrap gap-2">

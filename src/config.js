@@ -41,6 +41,10 @@ const schema = z.object({
   META_APP_SECRET: z.string().optional(),
   META_WEBHOOK_VERIFY_TOKEN: z.string().default("change-me-verify-token"),
   META_GRAPH_VERSION: z.string().default("v23.0"),
+  META_EMBEDDED_SIGNUP_CONFIG_ID: z.string().optional(),
+  GATEWAY_URL: z.string().optional(),
+  GATEWAY_SECRET: z.string().optional(),
+  PLATFORM_REPORT_PHONE: z.string().optional(),
 
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default("gpt-5-mini"),
@@ -97,6 +101,7 @@ export const config = {
     appSecret: env.META_APP_SECRET,
     verifyToken: env.META_WEBHOOK_VERIFY_TOKEN,
     graphVersion: env.META_GRAPH_VERSION,
+    embeddedSignupConfigId: env.META_EMBEDDED_SIGNUP_CONFIG_ID,
   },
   openai: {
     apiKey: env.OPENAI_API_KEY,
@@ -106,6 +111,8 @@ export const config = {
   },
   gemini: { apiKey: env.GEMINI_API_KEY, model: env.GEMINI_MODEL },
   google: { mapsKey: env.GOOGLE_MAPS_API_KEY },
+  gateway: { url: env.GATEWAY_URL?.replace(/\/$/, ""), secret: env.GATEWAY_SECRET },
+  platformReportPhone: env.PLATFORM_REPORT_PHONE,
   defaults: {
     country: env.DEFAULT_COUNTRY,
     timezone: env.DEFAULT_TIMEZONE,

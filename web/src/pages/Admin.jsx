@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { AlertTriangle, Building2, FileBarChart2, FileDown, Layers, MessageCircle, Package, Send, ShieldCheck, Sparkles, Store, Wallet } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { useApi, post, patch, qs } from "../lib/api.js";
+import { useApi, post, patch, put, qs } from "../lib/api.js";
 import { useSession } from "../lib/session.jsx";
 import { dateTime, num, money, ago, STATUS_LABEL, STATUS_TONE } from "../lib/format.js";
-import { Card, Stat, Table, Badge, Button, PageHeader, Tabs, Input, Loading, ErrorBox, Select, useAction } from "../components/ui.jsx";
+import { Card, Stat, Table, Badge, Button, Field, PageHeader, Tabs, Input, Loading, ErrorBox, Select, Toggle, useAction } from "../components/ui.jsx";
 import { TrendChart, BarList } from "../components/charts.jsx";
 
 function Overview() {
@@ -16,15 +17,16 @@ function Overview() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Accounts" value={num(t.accounts)} sub={`${num(t.suspended)} suspended · ${num(t.users)} users`} />
-        <Stat label="Stores" value={num(t.stores)} sub={`${num(t.active_stores)} active · ${num(t.numbers)} WhatsApp numbers`} />
-        <Stat label="Orders (30d)" value={num(k.orders)} sub={`${k.confirmation_rate}% confirmed`} tone="green" />
-        <Stat label="Messages (30d)" value={num(m.sent)} sub={`${m.read_rate}% read · ${num(m.failed)} failed`} />
-        <Stat label="Queue backlog" value={num(t.queue_backlog)} tone={Number(t.queue_backlog) > 100 ? "amber" : "gray"} />
-        <Stat label="Failed jobs (24h)" value={num(t.failed_jobs_24h)} tone={Number(t.failed_jobs_24h) ? "red" : "gray"} />
-        <Stat label="AI calls (30d)" value={num(data.metrics.ai.calls)} sub={`${num(data.metrics.ai.tokens)} tokens`} tone="blue" />
-        <Stat label="Est. Meta cost (30d)" value={money(m.cost, "USD")} />
+        <Stat icon={Building2} label="Accounts" value={num(t.accounts)} sub={`${num(t.suspended)} suspended · ${num(t.users)} users`} />
+        <Stat icon={Store} label="Stores" value={num(t.stores)} sub={`${num(t.active_stores)} active · ${num(t.numbers)} WhatsApp numbers`} />
+        <Stat icon={Package} label="Orders (30d)" value={num(k.orders)} sub={`${k.confirmation_rate}% confirmed`} tone="green" />
+        <Stat icon={MessageCircle} label="Messages (30d)" value={num(m.sent)} sub={`${m.read_rate}% read · ${num(m.failed)} failed`} />
+        <Stat icon={Layers} label="Queue backlog" value={num(t.queue_backlog)} tone={Number(t.queue_backlog) > 100 ? "amber" : "gray"} />
+        <Stat icon={AlertTriangle} label="Failed jobs (24h)" value={num(t.failed_jobs_24h)} tone={Number(t.failed_jobs_24h) ? "red" : "gray"} />
+        <Stat icon={Sparkles} label="AI calls (30d)" value={num(data.metrics.ai.calls)} sub={`${num(data.metrics.ai.tokens)} tokens`} tone="blue" />
+        <Stat icon={Wallet} label="Est. Meta cost (30d)" value={money(m.cost, "USD")} />
       </div>
+      <PlatformReport />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Platform orders per day">
           <TrendChart
@@ -41,6 +43,75 @@ function Overview() {
         </Card>
       </div>
     </div>
+  );
+}
+
+function PlatformReport() {
+  const { data, error, reload } = useApi("/admin/platform-report");
+  const [f, setF] = useState(null);
+  const [run, busy] = useAction();
+  useEffect(() => {
+    if (data) setF({ ...data.settings, senderStoreId: data.settings.senderStoreId ?? null });
+  }, [data]);
+  if (error) return <ErrorBox error={error} />;
+  if (!f) return null;
+  return (
+    <Card title="Your daily platform report on WhatsApp" icon={FileBarChart2}>
+      <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
+        <div className="space-y-4">
+          <p className="text-sm text-gray-500">One PDF every day covering every business and store: orders, revenue, confirmation rate, messages, failures and the top stores.</p>
+          <Toggle checked={f.enabled} onChange={(v) => setF({ ...f, enabled: v })} label="Send me the platform report every day" />
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="My WhatsApp number" className="sm:col-span-2">
+              <Input value={f.phone || ""} onChange={(e) => setF({ ...f, phone: e.target.value })} placeholder="+92 300 1234567" type="tel" />
+            </Field>
+            <Field label="Time">
+              <Input type="time" value={f.time} onChange={(e) => setF({ ...f, time: e.target.value })} />
+            </Field>
+          </div>
+          <Field label="Send from" hint="The WhatsApp number of this store sends the report.">
+            <Select value={f.senderStoreId ?? ""} onChange={(e) => setF({ ...f, senderStoreId: e.target.value ? Number(e.target.value) : null })}>
+              <option value="">First store with a WhatsApp number</option>
+              {data.senders.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} · {s.display_number || "QR"} {s.provider === "gateway" ? "(QR)" : ""}
+                </option>
+              ))}
+            </Select>
+          </Field>
+          <div className="flex flex-wrap gap-2">
+            <Button loading={busy} onClick={() => run(() => put("/admin/platform-report", { enabled: f.enabled, phone: f.phone || "", time: f.time, senderStoreId: f.senderStoreId }), "Saved").then(reload)}>
+              Save
+            </Button>
+            <Button variant="secondary" loading={busy} disabled={!f.phone} onClick={() => run(() => post("/admin/platform-report/send"), "Report sent to your WhatsApp").then(reload)}>
+              <Send className="h-4 w-4" /> Send now
+            </Button>
+          </div>
+        </div>
+        <div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-gray-500">Recent reports</div>
+          {data.history.length === 0 ? (
+            <p className="text-sm text-gray-400">No reports yet.</p>
+          ) : (
+            <ul className="divide-y divide-gray-100 rounded-xl ring-1 ring-gray-100 dark:divide-gray-800 dark:ring-gray-800">
+              {data.history.map((h) => (
+                <li key={h.id} className="flex items-center justify-between gap-3 px-3 py-2 text-sm">
+                  <div>
+                    <div className="font-medium">{h.period_key}</div>
+                    <div className="text-xs text-gray-500">
+                      {num(h.kpis?.orders)} orders · {h.kpis?.confirmation_rate ?? 0}% confirmed · {(h.sent_to || []).length ? "sent" : "not sent"}
+                    </div>
+                  </div>
+                  <a href={`/api/admin/platform-report/${h.id}/pdf`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-semibold text-brand-700 hover:underline dark:text-brand-400">
+                    <FileDown className="h-3.5 w-3.5" /> PDF
+                  </a>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+    </Card>
   );
 }
 
@@ -244,7 +315,7 @@ export default function Admin() {
   const View = views[tab];
   return (
     <div className="space-y-4">
-      <PageHeader title="🛡️ Super admin" subtitle="Every account, store, order and message on the platform" />
+      <PageHeader icon={ShieldCheck} title="Super admin" subtitle="Every account, store, order and message on the platform" />
       <Tabs value={tab} onChange={setTab} tabs={Object.keys(views).map((v) => ({ value: v, label: v[0].toUpperCase() + v.slice(1) }))} />
       <View />
     </div>

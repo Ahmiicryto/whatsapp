@@ -1,3 +1,4 @@
+import { Package } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApi, qs } from "../lib/api.js";
@@ -18,6 +19,7 @@ export default function Orders() {
   return (
     <div>
       <PageHeader
+        icon={Package}
         title="Orders"
         subtitle="Synced automatically from Shopify"
         actions={
