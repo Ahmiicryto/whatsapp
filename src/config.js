@@ -111,12 +111,14 @@ export const config = {
   },
 };
 
+/** Required production settings that are missing (shown on every request on serverless instead of crashing). */
+config.missingEnv = [];
 if (config.isProd) {
-  const missing = [];
-  if (!config.encryptionKey) missing.push("ENCRYPTION_KEY");
-  if (config.sessionSecret === "dev-session-secret-change-me") missing.push("SESSION_SECRET");
-  if (missing.length) {
-    console.error(`Missing required production env vars: ${missing.join(", ")}`);
-    process.exit(1);
+  if (!config.encryptionKey) config.missingEnv.push("ENCRYPTION_KEY");
+  if (config.sessionSecret === "dev-session-secret-change-me") config.missingEnv.push("SESSION_SECRET");
+  if (!process.env.DATABASE_URL) config.missingEnv.push("DATABASE_URL");
+  if (config.missingEnv.length) {
+    console.error(`Missing required production env vars: ${config.missingEnv.join(", ")}`);
+    if (!config.serverless) process.exit(1);
   }
 }

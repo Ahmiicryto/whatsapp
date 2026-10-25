@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm install --include=dev",
   "buildCommand": "npm run build",
   "outputDirectory": "dist/web",
   "functions": {
@@ -25,7 +26,7 @@
   "crons": [
     {
       "path": "/api/cron/tick",
-      "schedule": "* * * * *"
+      "schedule": "0 0 * * *"
     }
   ],
   "headers": [

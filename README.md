@@ -38,24 +38,23 @@ Portal (React)  ◀──▶  /api/*                                └─▶ Sh
 
 Vercel runs the app as one serverless function (`api/index.js`) plus the static portal. With no always-on worker, background jobs run in two ways:
 - **Right after a webhook or action**, in the same function call. A new order's confirmation goes out within seconds.
-- **Every minute, from Vercel Cron** calling `/api/cron/tick`. This handles delayed work: reminders, no-response timeouts, campaigns, reports, retries and order reconciliation. Delayed jobs can run up to about a minute late.
+- **Every minute, from a scheduler** calling `/api/cron/tick`. This handles delayed work: reminders, no-response timeouts, campaigns, reports, retries and order reconciliation.
 
 Steps:
-1. **Create a Postgres database.** Vercel doesn't host one itself, so add **Neon** from the Vercel Marketplace (Storage → Neon), or use Supabase. Use the **pooled** connection string as `DATABASE_URL` and set `DATABASE_SSL=true`.
-2. **Import the repo** in Vercel (Add New → Project). Leave the framework preset as "Other"; `vercel.json` sets the build, output folder, function, rewrites and cron.
+1. **Create a Postgres database.** Add **Neon** from the Vercel Marketplace (Storage → Neon), or use Supabase. Use the **pooled** connection string as `DATABASE_URL` and set `DATABASE_SSL=true`.
+2. **Import the repo** in Vercel (Add New → Project). Leave the framework preset as "Other"; `vercel.json` sets the install and build commands, output folder, function, rewrites and cron.
 3. **Add environment variables** (Project → Settings → Environment Variables):
-   - `DATABASE_URL`, `DATABASE_SSL=true`, `NODE_ENV=production`
+   - `DATABASE_URL`, `DATABASE_SSL=true`. Don't set `NODE_ENV`: Vercel sets it at runtime.
    - `SESSION_SECRET` and `ENCRYPTION_KEY`: generate each with `openssl rand -base64 32`. Never change `ENCRYPTION_KEY` once data exists.
-   - `CRON_SECRET`: any long random string. Vercel Cron sends it automatically and the tick endpoint rejects calls without it.
+   - `CRON_SECRET`: any long random string. The tick endpoint rejects calls without it.
    - `APP_BASE_URL`: your production domain, e.g. `https://wa-commerce.vercel.app`. If omitted, Vercel's production URL is used.
    - `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD`, `META_APP_ID`, `META_APP_SECRET`, `META_WEBHOOK_VERIFY_TOKEN`, `OPENAI_API_KEY`, `GOOGLE_MAPS_API_KEY`, and optionally `SHOPIFY_API_KEY` / `SHOPIFY_API_SECRET`. These are the same as `.env.example`.
 4. **Deploy.** Migrations run on the first request. Open `/healthz` to check the database connection.
+5. **Turn on the every-minute scheduler.** `vercel.json` ships with a once-a-day cron so the deploy works on every plan, including Hobby. Pick one:
+   - **Free (any plan):** create a job at cron-job.org (or any uptime/cron service) that calls `https://YOUR-DOMAIN/api/cron/tick` every minute, with the header `Authorization: Bearer <CRON_SECRET>`.
+   - **Vercel Pro:** change the schedule in `vercel.json` to `"* * * * *"` and redeploy. Vercel then sends the secret itself.
 
-**Plan:** use **Vercel Pro**. Per-minute cron jobs and commercial use both need Pro.
-
-On the Hobby plan, deploying with a per-minute cron fails, because Hobby only allows daily cron jobs. To use Hobby anyway:
-1. Change the schedule in `vercel.json` to `"0 0 * * *"`.
-2. Have a free external scheduler such as cron-job.org call `https://YOUR-DOMAIN/api/cron/tick` every minute, with the header `Authorization: Bearer <CRON_SECRET>`.
+Note: Vercel's Hobby plan is for non-commercial use. Use Pro for a live business.
 
 ## Deploy on Render
 

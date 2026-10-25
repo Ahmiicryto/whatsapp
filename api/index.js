@@ -1,6 +1,7 @@
 // Vercel entry point: every API, webhook, short-link and media request is rewritten here (see vercel.json).
 import { createApp } from "../src/app.js";
 import { bootstrap } from "../src/bootstrap.js";
+import { config } from "../src/config.js";
 
 const app = createApp();
 let ready = null;
@@ -41,15 +42,25 @@ async function captureBody(req, res) {
   return true;
 }
 
+function fail(res, message) {
+  res.statusCode = 500;
+  res.setHeader("Content-Type", "application/json");
+  res.end(JSON.stringify({ error: message }));
+}
+
 export default async function handler(req, res) {
-  // Migrations + super admin seed, once per cold start (guarded by a Postgres advisory lock).
-  if (!ready) {
-    ready = bootstrap().catch((err) => {
-      ready = null;
-      throw err;
-    });
+  if (config.missingEnv.length) {
+    return fail(res, `Missing environment variables in Vercel: ${config.missingEnv.join(", ")}. Add them under Project → Settings → Environment Variables, then redeploy.`);
   }
-  await ready;
+  // Migrations + super admin seed, once per cold start (guarded by a Postgres advisory lock).
+  if (!ready) ready = bootstrap();
+  try {
+    await ready;
+  } catch (err) {
+    ready = null;
+    console.error("startup failed", err);
+    return fail(res, `Could not start: ${err.message}. Check DATABASE_URL (use the pooled connection string) and DATABASE_SSL=true.`);
+  }
   if (!(await captureBody(req, res))) return;
   return app(req, res);
 }
