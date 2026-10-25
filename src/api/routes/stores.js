@@ -53,12 +53,18 @@ r.post(
     const body = manualSchema.parse(req.body);
     const shop = normalizeShopDomain(body.shopDomain);
     if (!isValidShopDomain(shop)) throw badRequest("Use the store's xxx.myshopify.com domain");
+    if (!/^shp(at|ca|ua)_/.test(body.accessToken.trim())) {
+      throw badRequest(
+        "This isn't a Shopify Admin API access token (those start with shpat_). If you copied a Client ID / Client secret from the Shopify Dev Dashboard, " +
+          "put them in Vercel as SHOPIFY_API_KEY and SHOPIFY_API_SECRET, redeploy, then use the “Install app” tab instead."
+      );
+    }
     const existing = await one(`SELECT id, account_id FROM stores WHERE lower(shopify_domain)=$1`, [shop]);
     if (existing && existing.account_id !== req.accountId) throw forbidden("This store is already connected to another account");
 
     let info;
     try {
-      info = await fetchShopInfo({ id: 0, shopifyDomain: shop, shopifyToken: body.accessToken });
+      info = await fetchShopInfo({ id: 0, shopifyDomain: shop, shopifyToken: body.accessToken.trim() });
     } catch (err) {
       throw badRequest(`Could not connect to Shopify: ${err.message}`);
     }
@@ -68,7 +74,7 @@ r.post(
        ON CONFLICT (shopify_domain) DO UPDATE SET shopify_token_enc=EXCLUDED.shopify_token_enc, webhook_secret_enc=EXCLUDED.webhook_secret_enc,
          status='active', updated_at=now()
        RETURNING *`,
-      [req.accountId, body.name || info.name, shop, encrypt(body.accessToken), encrypt(body.webhookSecret), info.currency, info.timezone, info.country]
+      [req.accountId, body.name || info.name, shop, encrypt(body.accessToken.trim()), encrypt(body.webhookSecret.trim()), info.currency, info.timezone, info.country]
     );
     invalidateStore(row.id);
     await enqueue("store.setup", { storeId: row.id }, { singletonKey: `store:${row.id}:setup` });

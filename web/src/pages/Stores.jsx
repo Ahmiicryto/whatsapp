@@ -32,6 +32,12 @@ function ConnectModal({ onClose, onDone, oauth }) {
   return (
     <Modal open onClose={onClose} title="Connect a Shopify store" footer={<Button loading={busy} onClick={submit}>{tab === "oauth" ? "Continue to Shopify" : "Connect"}</Button>}>
       <Tabs value={tab} onChange={setTab} tabs={[...(oauth ? [{ value: "oauth", label: "Install app (recommended)" }] : []), { value: "manual", label: "Custom app token" }]} />
+      {!oauth && (
+        <div className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+          The <b>Install app</b> option appears after you add <b>SHOPIFY_API_KEY</b> (Client ID) and <b>SHOPIFY_API_SECRET</b> (Client secret)
+          from the Shopify Dev Dashboard to your hosting environment variables and redeploy. This tab only accepts an older custom-app token starting with <b>shpat_</b>.
+        </div>
+      )}
       <div className="mt-4 space-y-3">
         <Field label="Store domain" hint="e.g. glowcandles.myshopify.com">
           <Input value={f.shopDomain} onChange={(e) => setF({ ...f, shopDomain: e.target.value })} placeholder="yourstore.myshopify.com" />
