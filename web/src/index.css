@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand-50: #f0fdf4;
+  --color-brand-100: #dcfce7;
+  --color-brand-500: #22c55e;
+  --color-brand-600: #16a34a;
+  --color-brand-700: #15803d;
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", sans-serif;
+}
+
+html, body, #root { height: 100%; }
+body { @apply bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100 antialiased; }
+.wa-chat-bg { background-color: #efeae2; }
+@media (prefers-color-scheme: dark) { .wa-chat-bg { background-color: #0b141a; } }
