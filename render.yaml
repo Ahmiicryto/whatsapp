@@ -51,6 +51,10 @@ envVarGroups:
         sync: false
       - key: PLATFORM_REPORT_PHONE # optional: super admin's WhatsApp for the platform report
         sync: false
+      - key: STRIPE_SECRET_KEY # optional: card payments for plans and advance payments
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
       - key: GATEWAY_URL # optional: QR login, e.g. https://wa-commerce-gateway.onrender.com
         sync: false
       - key: GATEWAY_SECRET # same value as on the gateway service

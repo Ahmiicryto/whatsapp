@@ -10,6 +10,8 @@ import * as wa from "../../whatsapp/cloudApi.js";
 import { agentReply } from "../../ai/features.js";
 import { aiAvailable } from "../../ai/provider.js";
 import { normalizePhone } from "../../lib/phone.js";
+import { formatMoney } from "../../lib/format.js";
+import { notify } from "../../services/notifications.js";
 
 const r = Router();
 
@@ -24,6 +26,10 @@ r.get(
       where.push(`c.status = $${params.length}`);
     }
     if (req.query.needsHuman === "1") where.push("c.needs_human");
+    if (req.query.label) {
+      params.push(String(req.query.label));
+      where.push(`$${params.length} = ANY(c.labels)`);
+    }
     if (req.query.assigned === "me") {
       params.push(req.user.id);
       where.push(`c.assigned_user_id = $${params.length}`);
@@ -154,8 +160,14 @@ r.patch(
         needs_human: z.boolean().optional(),
         ai_paused: z.boolean().optional(),
         unread: z.literal(0).optional(),
+        labels: z.array(z.string().min(1).max(30)).max(10).optional(),
       })
       .parse(req.body);
+    if (b.labels) await query(`UPDATE conversations SET labels=$2 WHERE id=$1`, [conv.id, [...new Set(b.labels.map((l) => l.trim()))]]);
+    if (b.assigned_user_id && b.assigned_user_id !== conv.assigned_user_id && b.assigned_user_id !== req.user.id) {
+      const store = await getStoreContext(conv.store_id);
+      await notify({ accountId: store.accountId, storeId: store.id, userId: b.assigned_user_id, kind: "inbox.assigned", title: `${req.user.name || req.user.email} assigned you a chat`, body: conv.name || conv.phone_e164, link: `/inbox/${conv.id}` });
+    }
     const row = await one(
       `UPDATE conversations SET status=COALESCE($2,status),
          assigned_user_id = CASE WHEN $3 THEN $4 ELSE assigned_user_id END,
@@ -166,6 +178,88 @@ r.patch(
       [conv.id, b.status ?? null, "assigned_user_id" in b, b.assigned_user_id ?? null, b.needs_human ?? null, b.ai_paused ?? null, b.unread ?? null]
     );
     res.json(row);
+  })
+);
+
+// ---------------------------------------------------------------- notes, saved replies, products
+
+r.get(
+  "/conversations/:id/notes",
+  ah(async (req, res) => {
+    const conv = await assertRow(req, "conversations", req.params.id);
+    res.json(await many(`SELECT n.*, u.name AS user_name, u.email AS user_email FROM conversation_notes n LEFT JOIN users u ON u.id=n.user_id WHERE n.conversation_id=$1 ORDER BY n.created_at`, [conv.id]));
+  })
+);
+
+r.post(
+  "/conversations/:id/notes",
+  ah(async (req, res) => {
+    const conv = await assertRow(req, "conversations", req.params.id, "agent");
+    const { body } = z.object({ body: z.string().min(1).max(2000) }).parse(req.body);
+    const note = await one(`INSERT INTO conversation_notes (conversation_id, user_id, body) VALUES ($1,$2,$3) RETURNING *`, [conv.id, req.user.id, body]);
+    // @mention a teammate by email to notify them
+    const store = await getStoreContext(conv.store_id);
+    for (const email of body.match(/@[\w.+-]+@[\w-]+\.[\w.]+/g) || []) {
+      const u = await one(`SELECT u.id FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.email=$1 AND m.account_id=$2`, [email.slice(1).toLowerCase(), store.accountId]);
+      if (u) await notify({ accountId: store.accountId, storeId: store.id, userId: u.id, kind: "inbox.mention", title: `${req.user.name || req.user.email} mentioned you`, body: body.slice(0, 200), link: `/inbox/${conv.id}` });
+    }
+    res.json(note);
+  })
+);
+
+r.get(
+  "/saved-replies",
+  ah(async (req, res) => {
+    res.json(await many(`SELECT * FROM saved_replies WHERE account_id=$1 ORDER BY title`, [req.accountId]));
+  })
+);
+
+r.post(
+  "/saved-replies",
+  ah(async (req, res) => {
+    const b = z.object({ title: z.string().min(1).max(80), body: z.string().min(1).max(4096), shortcut: z.string().max(30).optional(), storeId: z.number().int().nullable().optional() }).parse(req.body);
+    res.json(await one(`INSERT INTO saved_replies (account_id, store_id, title, shortcut, body) VALUES ($1,$2,$3,$4,$5) RETURNING *`, [req.accountId, b.storeId ?? null, b.title, b.shortcut || null, b.body]));
+  })
+);
+
+r.put(
+  "/saved-replies/:id",
+  ah(async (req, res) => {
+    const b = z.object({ title: z.string().min(1).max(80), body: z.string().min(1).max(4096), shortcut: z.string().max(30).optional() }).parse(req.body);
+    res.json(await one(`UPDATE saved_replies SET title=$3, shortcut=$4, body=$5 WHERE id=$1 AND account_id=$2 RETURNING *`, [req.params.id, req.accountId, b.title, b.shortcut || null, b.body]));
+  })
+);
+
+r.delete(
+  "/saved-replies/:id",
+  ah(async (req, res) => {
+    await query(`DELETE FROM saved_replies WHERE id=$1 AND account_id=$2`, [req.params.id, req.accountId]);
+    res.json({ ok: true });
+  })
+);
+
+/** Send a product card: photo, price and a one-tap buy link (Shopify cart permalink). */
+r.post(
+  "/conversations/:id/send-product",
+  ah(async (req, res) => {
+    const conv = await assertRow(req, "conversations", req.params.id, "agent");
+    const { productId, variantId } = z.object({ productId: z.number().int(), variantId: z.number().int().optional() }).parse(req.body);
+    const store = await getStoreContext(conv.store_id);
+    const p = await one(`SELECT * FROM products WHERE id=$1 AND store_id=$2`, [productId, store.id]);
+    if (!p) throw badRequest("Product not found");
+    const v = (p.variants || []).find((x) => Number(x.id) === Number(variantId)) || (p.variants || [])[0];
+    const link = v ? `https://${store.shopifyDomain}/cart/${v.id}:1` : p.online_url || `https://${store.shopifyDomain}/products/${p.handle}`;
+    const caption = `*${p.title}*${v && v.title !== "Default Title" ? ` (${v.title})` : ""}\n${formatMoney(v?.price ?? p.price_min, p.currency || store.currency)}${Number(p.inventory) > 0 ? "" : " · currently sold out"}\n\nOrder here: ${link}`;
+    const image = v?.image || p.image_url;
+    try {
+      const msg = image
+        ? await sendSession(store, { to: conv.phone_e164, payload: wa.imagePayload({ link: image, caption }), body: caption, kind: "product", userId: req.user.id })
+        : await sendText(store, { to: conv.phone_e164, body: caption, kind: "product", userId: req.user.id });
+      await pauseAi(store, conv.id);
+      res.json(msg);
+    } catch (err) {
+      throw badRequest(err.message);
+    }
   })
 );
 

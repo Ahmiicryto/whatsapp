@@ -128,6 +128,7 @@ export function client() {
     patch: (p, b) => call("PATCH", p, b),
     del: (p) => call("DELETE", p),
     raw: call,
+    form: (p, fields) => call("POST", p, new URLSearchParams(fields).toString(), { "Content-Type": "application/x-www-form-urlencoded" }),
     cookie: () => cookie,
   };
 }

@@ -24,6 +24,9 @@ import adminRoutes from "./api/routes/admin.js";
 import productRoutes from "./api/routes/products.js";
 import workspaceRoutes from "./api/routes/workspace.js";
 import logisticsRoutes from "./api/routes/logistics.js";
+import growthRoutes from "./api/routes/growth.js";
+import billingRoutes from "./api/routes/billing.js";
+import publicApi from "./api/v1.js";
 import { isAuthorizedCron, runTick } from "./serverless.js";
 
 const webDist = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist", "web");
@@ -71,6 +74,7 @@ export function createApp() {
     res.json(await runTick());
   }));
 
+  app.use("/v1", publicApi); // token-authenticated REST API (no cookies, no CSRF header)
   app.use(loadSession);
   app.use(publicRoutes);
 
@@ -105,6 +109,8 @@ export function createApp() {
   api.use(productRoutes);
   api.use(workspaceRoutes);
   api.use(logisticsRoutes);
+  api.use(growthRoutes);
+  api.use(billingRoutes);
   api.use("/admin", adminRoutes);
   app.use("/api", api);
   app.use("/api", (_req, _res, next) => next(new HttpError(404, "API route not found")));

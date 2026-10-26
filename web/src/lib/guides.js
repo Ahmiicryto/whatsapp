@@ -237,7 +237,7 @@ export const GUIDES = [
     title: "My profile",
     route: /^\/profile/,
     summary: "Your WhatsApp number, daily report, notification settings and password.",
-    steps: ["Add your number and turn on Send me the daily report.", "Choose which notifications you want.", "Change your password. Other devices are signed out."],
+    steps: ["Add your number and turn on Send me the daily report.", "Turn on urgent alerts to get problems on WhatsApp too. In-app alerts appear under the bell; allow desktop alerts there.", "Change your password. Other devices are signed out."],
   },
   {
     key: "admin",

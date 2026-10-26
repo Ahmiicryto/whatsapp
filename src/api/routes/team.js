@@ -7,8 +7,17 @@ import { audit } from "../../services/audit.js";
 import { normalizePhone } from "../../lib/phone.js";
 import { config } from "../../config.js";
 import { generateReport, deliverReport } from "../../services/reports.js";
+import { assertWithinPlan } from "../../services/billing.js";
 
 const r = Router();
+
+/** Names of everyone in the business (for assigning chats); any member may read it. */
+r.get(
+  "/team/directory",
+  ah(async (req, res) => {
+    res.json(await many(`SELECT u.id, u.name, u.email, m.role FROM memberships m JOIN users u ON u.id=m.user_id WHERE m.account_id=$1 AND u.status='active' ORDER BY u.name NULLS LAST`, [req.accountId]));
+  })
+);
 
 r.get(
   "/team",
@@ -45,6 +54,8 @@ r.post(
   ah(async (req, res) => {
     const b = memberSchema.parse(req.body);
     const email = b.email.toLowerCase();
+    const already = await one(`SELECT 1 FROM memberships m JOIN users u ON u.id=m.user_id WHERE u.email=$1 AND m.account_id=$2`, [email, req.accountId]);
+    if (!already) await assertWithinPlan(req.accountId, "users", { http: true });
     let user = await one(`SELECT id FROM users WHERE email=$1`, [email]);
     if (!user) {
       if (!b.password) throw badRequest("Set a temporary password for the new user");

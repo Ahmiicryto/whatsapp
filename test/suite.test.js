@@ -51,6 +51,9 @@ before(async () => {
   mock((u) => u.includes("api.postex.pk") && u.includes("get-operational-city"), () => ({ statusCode: "200", dist: [{ operationalCityName: "Islamabad" }] }));
   mock((u) => u.includes("api.postex.pk") && u.includes("create-order"), () => ({ statusCode: "200", dist: { trackingNumber: `PX${++pxCounter}` } }));
   mock((u) => u.includes("api.postex.pk") && u.includes("track-order"), () => ({ statusCode: "200", dist: { transactionStatus: trackStatus, transactionStatusHistory: [{ transactionStatusMessage: trackStatus, updatedAt: new Date().toISOString() }] } }));
+  mock((u, b) => u.includes("/graphql.json") && b?.query?.includes("products(first"), () => ({ data: { products: { pageInfo: { hasNextPage: false }, nodes: [] } } }));
+  mock((u, b) => u.includes("/graphql.json") && b?.query?.includes("productVariants(first"), () => ({ data: { productVariants: { pageInfo: { hasNextPage: false }, nodes: [{ legacyResourceId: "777", inventoryItem: { unitCost: { amount: "900.0" } } }] } } }));
+  mock((u, b) => u.includes("/graphql.json") && b?.query?.includes("order(id:") && !b?.query?.includes("fulfillmentOrders"), () => ({ data: { order: null } }));
   mock((u, b) => u.includes("/graphql.json") && b?.query?.includes("fulfillmentOrders"), () => ({ data: { order: { fulfillmentOrders: { nodes: [{ id: "gid://shopify/FulfillmentOrder/1", status: "OPEN" }] } } } }));
   mock((u, b) => u.includes("/graphql.json") && b?.query?.includes("fulfillmentCreate"), () => ({ data: { fulfillmentCreate: { fulfillment: { id: "gid://shopify/Fulfillment/9" }, userErrors: [] } } }));
   mock((u) => /gw\.example\.com\/sessions\/[^/]+\/start$/.test(u), () => ({ status: "qr", qr: "data:image/png;base64,QR" }));
@@ -241,4 +244,169 @@ test("profit report subtracts product cost, courier fees, returns and ad spend",
   assert.ok(t.returned >= 2);
   assert.equal(Math.round(t.profit), Math.round(t.revenue - t.cogs - t.shipping - t.returnCost - t.fees - t.packaging - t.ads));
   assert.ok(r.body.products.some((x) => Number(x.product_id) === 401));
+});
+
+// ---------------------------------------------------------------- phase 3: API, webhooks, rules, reviews, stock, upsell, inbox, billing
+
+let apiToken;
+test("public REST API: tokens, orders, messages; read-only tokens can't write", async () => {
+  const t = await owner.post("/api/developers/tokens", { name: "ERP" });
+  assert.equal(t.status, 200);
+  apiToken = t.body.token;
+  assert.match(apiToken, /^wa_live_/);
+  const auth = { Authorization: `Bearer ${apiToken}` };
+  const orders = await owner.raw("GET", "/v1/orders?limit=5", undefined, auth);
+  assert.equal(orders.status, 200, JSON.stringify(orders.body));
+  assert.ok(orders.body.data.length > 0);
+  const one = await owner.raw("GET", `/v1/orders/${orders.body.data[0].id}`, undefined, auth);
+  assert.ok(Array.isArray(one.body.data.items));
+  const msg = await owner.raw("POST", "/v1/messages", { store_id: storeId, phone: "03005556666", text: "Hello from the API" }, auth);
+  assert.equal(msg.status, 200, JSON.stringify(msg.body));
+  assert.equal(lastText(), "Hello from the API");
+  const bad = await owner.raw("GET", "/v1/orders", undefined, { Authorization: "Bearer wa_live_nope" });
+  assert.equal(bad.status, 401);
+  const ro = (await owner.post("/api/developers/tokens", { name: "BI", scopes: ["read"] })).body.token;
+  const denied = await owner.raw("POST", "/v1/messages", { store_id: storeId, phone: "03005556666", text: "x" }, { Authorization: `Bearer ${ro}` });
+  assert.equal(denied.status, 403);
+});
+
+test("outgoing webhooks are signed and fire on order events", async () => {
+  const hook = await owner.post("/api/developers/webhooks", { url: "https://hooks.example.com/wa", events: ["order.confirmed", "order.created"] });
+  assert.equal(hook.status, 200, JSON.stringify(hook.body));
+  mock((u) => u === "https://hooks.example.com/wa", () => ({ ok: true }));
+  calls.length = 0;
+  await newOrder();
+  await customerSays("1");
+  await worker.drain();
+  const sent = calls.filter((c) => c.url === "https://hooks.example.com/wa");
+  assert.ok(sent.some((c) => c.body.event === "order.created"));
+  const confirmed = sent.find((c) => c.body.event === "order.confirmed");
+  assert.ok(confirmed, "order.confirmed delivered");
+  const sig = crypto.createHmac("sha256", hook.body.secret).update(JSON.stringify(confirmed.body)).digest("hex");
+  assert.equal(confirmed.headers["X-WA-Signature"], sig);
+});
+
+test("automation rule: big confirmed orders get a VIP tag and a team notification", async () => {
+  const meta = await owner.get("/api/flows/meta");
+  assert.ok(meta.body.triggers["order.confirmed"]);
+  const rule = await owner.post("/api/flows", {
+    storeId,
+    name: "VIP orders",
+    trigger: "order.confirmed",
+    conditions: [{ field: "total", op: "gte", value: 5000 }],
+    steps: [{ type: "add_tag", tag: "VIP" }, { type: "notify", title: "VIP order {{order}} from {{city}}" }],
+  });
+  assert.equal(rule.status, 200, JSON.stringify(rule.body));
+  const small = await newOrder();
+  await customerSays("1");
+  const big = await newOrder({ total_price: "9000.00", line_items: [{ id: 1, product_id: 401, variant_id: 777, title: "Lavender Candle", quantity: 3, price: "3000.00" }] });
+  await customerSays("1");
+  await worker.drain();
+  const tags = async (id) => (await q(`SELECT shopify_tags FROM orders WHERE id=$1`, [id]))[0].shopify_tags;
+  assert.ok((await tags(big.id)).includes("VIP"));
+  assert.ok(!(await tags(small.id)).includes("VIP"));
+  const n = await owner.get("/api/notifications");
+  assert.ok(n.body.rows.some((r) => r.title === `VIP order ${big.name} from Islamabad`));
+  assert.equal((await q(`SELECT runs FROM automation_rules WHERE id=$1`, [rule.body.id]))[0].runs, 1);
+});
+
+test("reviews on WhatsApp: rating buttons, then a photo; published to the public feed", async () => {
+  await owner.put(`/api/stores/${storeId}/settings`, { reviews: { enabled: true, delayDays: 0, askPhoto: true, autoPublishMin: 4 } });
+  const o = await newOrder();
+  await customerSays("1");
+  const sh = (await owner.post(`/api/orders/${o.id}/book`, { force: true })).body;
+  await owner.put(`/api/shipments/${sh.id}/status`, { status: "delivered" });
+  calls.length = 0;
+  await runDelayed();
+  assert.ok(gwSends().some((c) => /how do you like/.test(c.body.caption || c.body.text || "")), "rating question sent");
+  await customerSays("1"); // 1 = Loved it (5 stars)
+  assert.match(lastText(), /photo/);
+  await gatewayEvent([{ type: "message", session, from: "923005556666", wamid: `RV${Date.now()}`, kind: "image", text: "Smells amazing", media: { base64: Buffer.from("img").toString("base64"), mime: "image/jpeg" } }]);
+  await worker.drain();
+  const review = (await q(`SELECT * FROM reviews WHERE order_id=$1`, [o.id]))[0];
+  assert.equal(review.rating, 5);
+  assert.equal(review.status, "published");
+  assert.match(review.body, /Smells amazing/);
+  assert.equal(review.media.length, 1);
+  const feed = await owner.get(`/public/stores/${storeId}/reviews.json`);
+  assert.ok(feed.body.reviews.some((r) => r.id === review.id));
+  await owner.put(`/api/stores/${storeId}/settings`, { reviews: { enabled: false } });
+});
+
+test("back in stock: sign up on the public page, get a WhatsApp message when stock returns", async () => {
+  await q(`UPDATE products SET inventory=0, variants=$2 WHERE store_id=$1 AND shopify_product_id=401`, [storeId, JSON.stringify([{ id: 777, title: "Large", sku: "CAN-L", price: 2500, inventory: 0 }])]);
+  const page = await owner.get(`/notify/${storeId}/401`);
+  assert.equal(page.status, 200);
+  const signup = await owner.form(`/notify/${storeId}/401`, { phone: "0345 1112233" });
+  assert.equal(signup.status, 200);
+  calls.length = 0;
+  await sendShopifyWebhook("products/update", { id: 401, title: "Lavender Candle", handle: "lavender-candle", status: "active", images: [], variants: [{ id: 777, title: "Large", sku: "CAN-L", price: "2500", inventory_quantity: 5 }] }, { domain: "suite.myshopify.com" });
+  await worker.drain();
+  const msg = gwSends().find((c) => c.body.to === "923451112233");
+  assert.ok(msg, "back-in-stock message sent");
+  assert.match(msg.body.caption || msg.body.text, /back in stock/);
+  assert.equal((await q(`SELECT status FROM stock_alerts WHERE phone_e164='+923451112233'`))[0].status, "sent");
+});
+
+test("upsell: offered after confirmation; yes adds it to the Shopify order", async () => {
+  mock((u, b) => u.includes("/graphql.json") && b?.query?.includes("orderEditBegin"), () => ({ data: { orderEditBegin: { calculatedOrder: { id: "gid://shopify/CalculatedOrder/1" }, userErrors: [] } } }));
+  mock((u, b) => u.includes("/graphql.json") && b?.query?.includes("orderEditAddVariant"), () => ({ data: { orderEditAddVariant: { calculatedLineItem: { id: "gid://shopify/CalculatedLineItem/1" }, userErrors: [] } } }));
+  mock((u, b) => u.includes("/graphql.json") && b?.query?.includes("orderEditAddLineItemDiscount"), () => ({ data: { orderEditAddLineItemDiscount: { userErrors: [] } } }));
+  mock((u, b) => u.includes("/graphql.json") && b?.query?.includes("orderEditCommit"), () => ({ data: { orderEditCommit: { order: { id: "gid://shopify/Order/1", totalPriceSet: { shopMoney: { amount: "4750.0" } } }, userErrors: [] } } }));
+  await owner.put(`/api/stores/${storeId}/settings`, { upsell: { enabled: true, variantId: 777, discountPercent: 10, text: "Add {{product}} for {{price}}?" } });
+  const o = await newOrder();
+  await customerSays("1");
+  calls.length = 0;
+  await runDelayed();
+  assert.match(lastText(), /Add Lavender Candle/);
+  await customerSays("1"); // 1 = Yes, add it
+  assert.ok(calls.some((c) => c.body?.query?.includes("orderEditCommit")));
+  assert.match(lastText(), /new order total/);
+  const row = (await q(`SELECT upsell, shopify_tags FROM orders WHERE id=$1`, [o.id]))[0];
+  assert.equal(row.upsell.accepted, true);
+  assert.ok(row.shopify_tags.includes("wa-upsell"));
+  await owner.put(`/api/stores/${storeId}/settings`, { upsell: { enabled: false } });
+});
+
+test("inbox tools: saved replies, notes with mentions, labels and product cards", async () => {
+  const conv = (await q(`SELECT id FROM conversations WHERE store_id=$1 AND phone_e164='+923005556666'`, [storeId]))[0];
+  const sr = await owner.post("/api/saved-replies", { title: "Delivery time", shortcut: "dt", body: "Delivery takes 2-4 working days." });
+  assert.equal(sr.status, 200);
+  assert.equal((await owner.get("/api/saved-replies")).body.length, 1);
+  const note = await owner.post(`/api/conversations/${conv.id}/notes`, { body: "Called her, wants delivery after 5pm @suite@example.com" });
+  assert.equal(note.status, 200);
+  assert.ok((await owner.get("/api/notifications")).body.rows.some((n) => n.kind === "inbox.mention"));
+  await owner.patch(`/api/conversations/${conv.id}`, { labels: ["VIP", "Follow up"] });
+  assert.equal((await owner.get("/api/conversations?label=VIP")).body.length, 1);
+  const p = (await q(`SELECT id FROM products WHERE store_id=$1 AND shopify_product_id=401`, [storeId]))[0];
+  calls.length = 0;
+  const card = await owner.post(`/api/conversations/${conv.id}/send-product`, { productId: p.id });
+  assert.equal(card.status, 200, JSON.stringify(card.body));
+  assert.match(lastText(), /suite\.myshopify\.com\/cart\/777:1/);
+});
+
+test("billing: plan limits block sending, Stripe webhook activates a subscription", async () => {
+  await root.put("/api/admin/billing", { enabled: true, trialDays: 14, bankInstructions: "Bank: Meezan 0123", contact: "" });
+  await root.put("/api/admin/plans/starter", { name: "Starter", price: 19, currency: "USD", limits: { stores: 1, messages: 5, aiReplies: 10, users: 3 }, features: [], stripe_price_id: "price_123", active: true, sort: 1 });
+  const account = (await q(`SELECT account_id FROM stores WHERE id=$1`, [storeId]))[0].account_id;
+  await root.patch(`/api/admin/accounts/${account}`, { plan: "starter", plan_status: "active", paid_until: new Date(Date.now() + 86400000).toISOString() });
+  const b = await owner.get("/api/billing");
+  assert.equal(b.body.enabled, true);
+  assert.ok(b.body.usage.messages > 5);
+  const msg = await owner.raw("POST", "/v1/messages", { store_id: storeId, phone: "03005556666", text: "over the limit" }, { Authorization: `Bearer ${apiToken}` });
+  assert.equal(msg.status, 400);
+  assert.match(msg.body.error, /Your plan allows 5/);
+  const extraStore = await owner.post("/api/stores", { shopDomain: "second", accessToken: "shpat_999999999", webhookSecret: "shpss_second_secret" });
+  assert.equal(extraStore.status, 402, JSON.stringify(extraStore.body));
+  // Stripe: subscription cancelled -> plan inactive
+  const event = { id: "evt_1", type: "customer.subscription.deleted", data: { object: { id: "sub_1", customer: "cus_1", status: "canceled", metadata: { accountId: String(account) } } } };
+  const raw = JSON.stringify(event);
+  const t = Math.floor(Date.now() / 1000);
+  const sig = crypto.createHmac("sha256", "whsec_test").update(`${t}.${raw}`).digest("hex");
+  assert.equal((await rawPost("/webhooks/stripe", raw, { "Stripe-Signature": `t=${t},v1=bad` })).status, 400);
+  assert.equal((await rawPost("/webhooks/stripe", raw, { "Stripe-Signature": `t=${t},v1=${sig}` })).status, 200);
+  assert.equal((await q(`SELECT plan_status FROM accounts WHERE id=$1`, [account]))[0].plan_status, "canceled");
+  const me = await owner.get("/api/auth/me");
+  assert.equal(me.body.billing.active, false);
+  await root.put("/api/admin/billing", { enabled: false, trialDays: 14, bankInstructions: "", contact: "" });
 });

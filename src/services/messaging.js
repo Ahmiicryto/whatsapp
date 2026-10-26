@@ -7,6 +7,7 @@ import { buildTemplatePayload, renderTemplateText } from "../whatsapp/templates.
 import { sendViaGateway } from "../whatsapp/gateway.js";
 import { toGatewayMessage, templateToGatewayMessage } from "../whatsapp/plain.js";
 import { countUsage } from "./audit.js";
+import { assertWithinPlan } from "./billing.js";
 
 const WINDOW_MS = 24 * 3600 * 1000;
 
@@ -93,7 +94,11 @@ function requireWa(store) {
   if (!store.active) throw new PermanentError("Store or account is not active");
 }
 
+// Owner reports and alerts keep working even when a plan runs out, so owners still hear about it.
+const PLAN_EXEMPT = ["alert", "daily_report", "report"];
+
 async function deliver(store, { to, payload, record, gateway }) {
+  if (!PLAN_EXEMPT.includes(record.kind)) await assertWithinPlan(store.accountId, "messages");
   const conversation = record.conversation || (await upsertConversation(store.id, to, { customerId: record.customerId, name: record.name }));
   try {
     let wamid;

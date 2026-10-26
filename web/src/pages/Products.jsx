@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Boxes, ExternalLink, ImageOff, RefreshCw, Search } from "lucide-react";
-import { useApi, post, qs } from "../lib/api.js";
+import { BellRing, Boxes, ExternalLink, ImageOff, RefreshCw, Search } from "lucide-react";
+import { useApi, post, put, qs } from "../lib/api.js";
 import { useSession } from "../lib/session.jsx";
 import { money, num, ago } from "../lib/format.js";
 import { Badge, Button, Card, Empty, ErrorBox, Input, PageHeader, Skeleton, Modal, cx, useAction } from "../components/ui.jsx";
@@ -41,6 +41,43 @@ function ProductCard({ p, onOpen }) {
         </div>
       </div>
     </button>
+  );
+}
+
+function CostAndStock({ p }) {
+  const { can } = useSession();
+  const alerts = useApi(`/products/${p.id}/stock-alerts`);
+  const [cost, setCost] = useState(p.cost_override ?? "");
+  const [run, busy] = useAction();
+  const waiting = (alerts.data?.rows || []).filter((a) => a.status === "waiting").length;
+  return (
+    <div className="space-y-3 rounded-xl bg-gray-50 p-3 dark:bg-gray-800/40">
+      <div>
+        <div className="text-xs font-semibold text-gray-600 dark:text-gray-300">Cost per item (for profit)</div>
+        <div className="mt-1 flex gap-2">
+          <Input type="number" min="0" value={cost} onChange={(e) => setCost(e.target.value)} placeholder={p.cost ? `${Number(p.cost)} from Shopify` : "Not set in Shopify"} />
+          {can("admin") && (
+            <Button size="sm" variant="secondary" loading={busy} onClick={() => run(() => put(`/products/${p.id}/cost`, { cost: cost === "" ? null : Number(cost) }), "Cost saved")}>
+              Save
+            </Button>
+          )}
+        </div>
+      </div>
+      <div>
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-gray-600 dark:text-gray-300">
+          <BellRing className="h-3.5 w-3.5" /> Back-in-stock list: {waiting} waiting
+        </div>
+        {alerts.data?.notifyUrl && (
+          <div className="mt-1 flex gap-2">
+            <Input readOnly value={alerts.data.notifyUrl} onFocus={(e) => e.target.select()} className="text-xs" />
+            <Button size="sm" variant="secondary" onClick={() => navigator.clipboard?.writeText(alerts.data.notifyUrl)}>
+              Copy
+            </Button>
+          </div>
+        )}
+        <p className="mt-1 text-[11px] text-gray-500">Link this page from your sold-out product page. Everyone on the list gets a WhatsApp message when stock returns.</p>
+      </div>
+    </div>
   );
 }
 
@@ -100,6 +137,7 @@ function ProductModal({ p, onClose }) {
               </tbody>
             </table>
           </div>
+          <CostAndStock p={p} />
           <p className="text-xs text-gray-500">These photos are sent with order confirmations on WhatsApp automatically.</p>
           {p.online_url && (
             <a href={p.online_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 font-semibold text-brand-700 hover:underline dark:text-brand-400">
@@ -114,8 +152,8 @@ function ProductModal({ p, onClose }) {
 
 export default function Products() {
   const { storeId, stores, can } = useSession();
-  const [q, setQ] = useState("");
-  const [query, setQuery] = useState("");
+  const [q, setQ] = useState(() => new URLSearchParams(window.location.search).get("q") || "");
+  const [query, setQuery] = useState(q);
   const [page, setPage] = useState(1);
   const [open, setOpen] = useState(null);
   const [run, busy] = useAction();

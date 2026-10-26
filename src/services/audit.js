@@ -16,7 +16,7 @@ export async function audit({ user, accountId, storeId, action, target, details 
 
 export async function countUsage(accountId, field, n = 1) {
   if (!accountId) return;
-  const allowed = ["messages", "marketing_messages", "ai_tokens", "address_checks"];
+  const allowed = ["messages", "marketing_messages", "ai_tokens", "address_checks", "ai_replies"];
   if (!allowed.includes(field)) throw new Error(`unknown usage field ${field}`);
   await query(
     `INSERT INTO usage_counters (account_id, month, ${field}) VALUES ($1,$2,$3)

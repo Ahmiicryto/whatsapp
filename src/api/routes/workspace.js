@@ -72,8 +72,8 @@ r.get(
       many(`SELECT id, name, shopify_domain FROM stores WHERE id = ANY($1) AND (name ILIKE $2 OR shopify_domain ILIKE $2) LIMIT 3`, [storeIds, like]),
     ]);
     const results = [
-      ...orders.map((o) => ({ type: "order", id: o.id, title: `${o.name} · ${o.customer_name || "Customer"}`, sub: `${o.status} · ${o.store_name}`, link: `/orders/${o.id}` })),
-      ...shipments.map((s) => ({ type: "shipment", id: s.id, title: `${s.tracking_number} · ${s.courier_name || "Courier"}`, sub: `${s.status} · order ${s.order_name}`, link: `/orders/${s.order_id}` })),
+      ...orders.map((o) => ({ type: "order", id: o.id, title: `${o.name} · ${o.customer_name || "Customer"}`, sub: `${o.status.replace(/_/g, " ")} · ${o.store_name}`, link: `/orders/${o.id}` })),
+      ...shipments.map((s) => ({ type: "shipment", id: s.id, title: `${s.tracking_number} · ${s.courier_name || "Courier"}`, sub: `${s.status.replace(/_/g, " ")} · order ${s.order_name}`, link: `/orders/${s.order_id}` })),
       ...customers.map((c) => ({ type: "customer", id: c.id, title: c.name || c.phone_e164, sub: `${c.phone_e164 || ""} · ${c.orders_count} orders · ${c.store_name}`, link: `/customers?q=${encodeURIComponent(c.phone_e164 || c.name || "")}` })),
       ...conversations.map((c) => ({ type: "chat", id: c.id, title: c.name || c.phone_e164, sub: c.last_message_preview || "", link: `/inbox/${c.id}` })),
       ...products.map((p) => ({ type: "product", id: p.id, title: p.title, sub: `${p.inventory ?? "?"} in stock`, image: p.image_url, link: `/products?q=${encodeURIComponent(p.title)}` })),

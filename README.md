@@ -23,6 +23,27 @@ One platform that links many Shopify stores to WhatsApp and runs them on Render.
 - **WhatsApp connection, three ways**: **Connect with Facebook** (Meta's official Embedded Signup, including the "keep using the WhatsApp Business app" QR coexistence flow), **Scan QR code** (WhatsApp Web style through the optional gateway service; unofficial), or paste Cloud API details by hand.
 - **Product catalog with photos**: products, variant images, prices and stock are imported from Shopify and kept in sync by webhooks. Confirmation messages use the exact variant photo.
 - **Personal daily report**: every user can add their WhatsApp number under **My profile** and get one daily PDF covering all their stores. The super admin gets a daily **platform report** covering every business.
+- **Couriers & COD**:
+  - PostEx, Leopards and Trax built in; any other courier with an API (TCS, M&P, Call Courier…) or a manual courier.
+  - One-click, bulk or automatic booking, with Shopify fulfillment and tracking sync.
+  - Failed-delivery recovery on WhatsApp.
+  - COD reconciliation with courier CSV import.
+- **Fraud protection**:
+  - Each number's delivery record across every store on the platform.
+  - Blocklist, with automatic blocking after repeated returns.
+  - Advance payments by wallet/bank, or a Stripe card link.
+- **Profit**: real profit after product cost, courier fees, returns, COD fees, packaging and ad spend.
+- **Growth**:
+  - Upsell after confirmation (added to the Shopify order).
+  - Photo reviews on WhatsApp with a public JSON feed.
+  - Back-in-stock alerts.
+  - AI product recommendations with one-tap buy links.
+  - Click-to-WhatsApp ad attribution.
+- **Automation rules**: IF trigger + conditions THEN steps (tag, message, notify, assign, book courier, ask advance, wait…).
+- **Team inbox**: assignment, labels, internal notes with @mentions, saved replies (type `/`), product cards.
+- **Notifications, search, help**: in-app bell with desktop alerts, Ctrl/⌘ K global search, and a "How to use" guide on every page plus a Help center.
+- **SaaS billing**: plans with limits, a free trial, Stripe subscriptions or manual bank/JazzCash activation.
+- **Developers**: REST API (`/v1`, bearer tokens) and signed outgoing webhooks.
 - **Portal**: dashboards with charts, orders, a shared WhatsApp inbox, customers, marketing, a template builder that submits to Meta, automations, reports, stores, team, and an audit log.
 
 ## Architecture
@@ -36,6 +57,16 @@ Portal (React)  ◀──▶  /api/*                                └─▶ Sh
 - `src/`: Node 20+ (ESM). Express API, webhooks, and a job queue on Postgres (`FOR UPDATE SKIP LOCKED`, retries, delays, cron). No Redis needed.
 - `web/`: React + Vite + Tailwind + Recharts portal, built into `dist/web` and served by the web service.
 - Secrets (Shopify tokens, WhatsApp tokens, store API keys) are stored encrypted with AES-256-GCM using `ENCRYPTION_KEY`.
+
+## Deploy anywhere
+
+See **[docs/DEPLOY.md](docs/DEPLOY.md)** for every kind of hosting:
+- VPS with Docker Compose (Postgres, worker, QR gateway and automatic HTTPS included), or PM2 + Nginx.
+- Render, Railway, Fly.io, Heroku.
+- Coolify, Dokploy.
+- cPanel/Hostinger Node.js.
+- Cloud Run / App Runner.
+- Vercel and other serverless hosts.
 
 ## Deploy on Vercel
 

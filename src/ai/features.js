@@ -78,7 +78,7 @@ export async function assessAddress(store, addressText, country) {
 }
 
 /** Support agent reply with handoff decision. */
-export async function agentReply(store, { customerName, orders, history, message, language }) {
+export async function agentReply(store, { customerName, orders, history, message, language, catalog = [] }) {
   const s = store.settings.ai;
   return aiJson(store, "agent", {
     system:
@@ -86,12 +86,16 @@ export async function agentReply(store, { customerName, orders, history, message
       `Reply ${s.replyLanguage === "auto" ? "in the same language and script the customer used (Roman Urdu if they wrote Roman Urdu)" : `in ${s.replyLanguage}`}. ` +
       "Keep replies short (max 3 sentences), friendly, and only use facts from the store knowledge and order data given. Never invent tracking numbers, prices, policies or delivery dates. " +
       "Set handoff=true when the customer is angry, asks for a human, reports a damaged/wrong item, asks for a refund, or you are not sure. When handoff=true, reply politely that a team member will reply shortly.\n\n" +
+      (catalog.length
+        ? "When the customer asks about buying or about a product, you may recommend up to 2 products from the catalog list; put their ids in recommend_product_ids and mention them briefly (a photo, price and buy link are sent automatically after your reply). Never recommend products that are not in the list. "
+        : "") +
       `Store knowledge:\n${s.knowledgeBase || "(none provided)"}`,
     user:
       `Customer: ${customerName || "unknown"}\nPreferred language hint: ${language || "auto"}\n` +
       `Customer's recent orders (JSON): ${JSON.stringify(orders).slice(0, 4000)}\n` +
+      (catalog.length ? `Catalog matches (JSON): ${JSON.stringify(catalog).slice(0, 2500)}\n` : "") +
       `Recent conversation:\n${history}\n\nNew customer message: """${String(message).slice(0, 1500)}"""`,
-    schema: obj({ reply: str, handoff: { type: "boolean" }, reason: str }),
+    schema: obj({ reply: str, handoff: { type: "boolean" }, reason: str, recommend_product_ids: { type: "array", items: { type: "integer" } } }),
     maxTokens: 400,
   });
 }

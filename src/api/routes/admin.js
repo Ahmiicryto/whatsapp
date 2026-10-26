@@ -1,4 +1,6 @@
 import { Router } from "express";
+import { listPlans, billingSettings, saveBillingSettings, invalidatePlan } from "../../services/billing.js";
+import { stripeConfigured } from "../../services/stripe.js";
 import { z } from "zod";
 import { one, many, query } from "../../db/pool.js";
 import { ah, notFound, badRequest } from "../../lib/errors.js";
@@ -55,11 +57,24 @@ r.get(
 r.patch(
   "/accounts/:id",
   ah(async (req, res) => {
-    const b = z.object({ status: z.enum(["active", "suspended"]).optional(), plan: z.string().optional(), limits: z.record(z.any()).optional(), name: z.string().optional() }).parse(req.body);
+    const b = z
+      .object({
+        status: z.enum(["active", "suspended"]).optional(),
+        plan: z.string().optional(),
+        limits: z.record(z.any()).optional(),
+        name: z.string().optional(),
+        plan_status: z.enum(["trialing", "active", "past_due", "canceled"]).optional(),
+        paid_until: z.string().nullable().optional(),
+        trial_ends_at: z.string().nullable().optional(),
+      })
+      .parse(req.body);
     const row = await one(
-      `UPDATE accounts SET status=COALESCE($2,status), plan=COALESCE($3,plan), limits=COALESCE($4,limits), name=COALESCE($5,name) WHERE id=$1 RETURNING *`,
-      [req.params.id, b.status, b.plan, b.limits, b.name]
+      `UPDATE accounts SET status=COALESCE($2,status), plan=COALESCE($3,plan), limits=COALESCE($4,limits), name=COALESCE($5,name), plan_status=COALESCE($6,plan_status),
+         paid_until = CASE WHEN $7 THEN $8::timestamptz ELSE paid_until END, trial_ends_at = CASE WHEN $9 THEN $10::timestamptz ELSE trial_ends_at END
+       WHERE id=$1 RETURNING *`,
+      [req.params.id, b.status, b.plan, b.limits, b.name, b.plan_status, "paid_until" in b, b.paid_until || null, "trial_ends_at" in b, b.trial_ends_at || null]
     );
+    invalidatePlan(row?.id);
     if (!row) throw notFound();
     const stores = await many(`SELECT id FROM stores WHERE account_id=$1`, [row.id]);
     stores.forEach((s) => invalidateStore(s.id));
@@ -237,6 +252,53 @@ r.get(
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `inline; filename="platform-report-${row.period_key}.pdf"`);
     res.send(row.pdf);
+  })
+);
+
+// ---------------------------------------------------------------- plans & billing switch
+
+r.get(
+  "/plans",
+  ah(async (_req, res) => {
+    res.json({ plans: await listPlans({ all: true }), settings: await billingSettings(), stripe: stripeConfigured() });
+  })
+);
+
+const planSchema = z.object({
+  id: z.string().regex(/^[a-z0-9_-]{2,30}$/).optional(),
+  name: z.string().min(1).max(60),
+  price: z.number().min(0),
+  currency: z.string().length(3).default("USD"),
+  limits: z.object({ stores: z.number().int().nullable().optional(), messages: z.number().int().nullable().optional(), aiReplies: z.number().int().nullable().optional(), users: z.number().int().nullable().optional() }),
+  features: z.array(z.string().max(80)).max(12).default([]),
+  stripe_price_id: z.string().nullable().optional(),
+  active: z.boolean().default(true),
+  sort: z.number().int().default(0),
+});
+
+r.put(
+  "/plans/:id",
+  ah(async (req, res) => {
+    const b = planSchema.parse(req.body);
+    const limits = Object.fromEntries(Object.entries(b.limits).filter(([, v]) => v !== null && v !== undefined));
+    const row = await one(
+      `INSERT INTO plans (id, name, price, currency, limits, features, stripe_price_id, active, sort) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, price=EXCLUDED.price, currency=EXCLUDED.currency, limits=EXCLUDED.limits, features=EXCLUDED.features,
+         stripe_price_id=EXCLUDED.stripe_price_id, active=EXCLUDED.active, sort=EXCLUDED.sort RETURNING *`,
+      [req.params.id, b.name, b.price, b.currency.toUpperCase(), limits, JSON.stringify(b.features), b.stripe_price_id || null, b.active, b.sort]
+    );
+    await audit({ user: req.user, action: "admin.plan.save", target: row.id });
+    res.json(row);
+  })
+);
+
+r.put(
+  "/billing",
+  ah(async (req, res) => {
+    const b = z.object({ enabled: z.boolean(), trialDays: z.number().int().min(0).max(90), trialPlan: z.string().default("trial"), currency: z.string().length(3).default("USD"), bankInstructions: z.string().max(2000).default(""), contact: z.string().max(200).default("") }).parse(req.body);
+    await saveBillingSettings(b);
+    await audit({ user: req.user, action: "admin.billing.update", details: { enabled: b.enabled } });
+    res.json(await billingSettings());
   })
 );
 

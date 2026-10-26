@@ -2,7 +2,7 @@ import { useState } from "react";
 import { AlertTriangle, Megaphone, PiggyBank, Receipt, RotateCcw, TrendingUp, Upload } from "lucide-react";
 import { useApi, post, del, qs } from "../lib/api.js";
 import { useSession } from "../lib/session.jsx";
-import { money, num } from "../lib/format.js";
+import { compact, money, num } from "../lib/format.js";
 import { Button, Card, Empty, ErrorBox, Input, Loading, PageHeader, Select, Stat, Table, Textarea, useAction } from "../components/ui.jsx";
 import { TrendChart } from "../components/charts.jsx";
 
@@ -99,7 +99,7 @@ export default function Profit() {
                 { key: "costs", label: "All costs" },
                 { key: "profit", label: "Profit" },
               ]}
-              format={m}
+              format={(v) => compact(v)}
             />
           ) : (
             <Empty title="No orders in this period" />

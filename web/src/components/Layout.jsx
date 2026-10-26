@@ -211,6 +211,18 @@ export default function Layout() {
       </aside>
       {open && <div className="fixed inset-0 z-30 bg-navy-950/50 backdrop-blur-sm lg:hidden" onClick={() => setOpen(false)} />}
       <div className="flex min-w-0 flex-1 flex-col">
+        {me?.billing && (!me.billing.active || me.billing.status === "trialing") && (
+          <div className={cx("flex flex-wrap items-center justify-between gap-2 px-4 py-2 text-sm", me.billing.active ? "bg-sky-600 text-white" : "bg-red-600 text-white")}>
+            <span>
+              {me.billing.active
+                ? `Free trial${me.billing.trialEndsAt ? ` until ${new Date(me.billing.trialEndsAt).toLocaleDateString()}` : ""}. Choose a plan to keep your automations running.`
+                : me.billing.reason}
+            </span>
+            <NavLink to="/billing" className="rounded-lg bg-white/20 px-2 py-1 font-semibold hover:bg-white/30">
+              See plans
+            </NavLink>
+          </div>
+        )}
         {me?.impersonating && (
           <div className="flex items-center justify-between bg-gradient-to-r from-violet-600 to-fuchsia-600 px-4 py-2 text-sm text-white">
             <span>You are viewing the portal as {me.user.email}. Actions are logged.</span>

@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { AlertTriangle, Building2, FileBarChart2, FileDown, Layers, MessageCircle, Package, Send, ShieldCheck, Sparkles, Store, Wallet } from "lucide-react";
+import { AlertTriangle, Building2, CreditCard, FileBarChart2, FileDown, Layers, MessageCircle, Package, Send, ShieldCheck, Sparkles, Store, Wallet } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useApi, post, patch, put, qs } from "../lib/api.js";
 import { useSession } from "../lib/session.jsx";
 import { dateTime, num, money, ago, STATUS_LABEL, STATUS_TONE } from "../lib/format.js";
-import { Card, Stat, Table, Badge, Button, Field, PageHeader, Tabs, Input, Loading, ErrorBox, Select, Toggle, useAction } from "../components/ui.jsx";
+import { Card, Stat, Table, Badge, Button, Field, Modal, PageHeader, Tabs, Input, Loading, ErrorBox, Select, Textarea, Toggle, useAction } from "../components/ui.jsx";
 import { TrendChart, BarList } from "../components/charts.jsx";
 
 function Overview() {
@@ -115,9 +115,171 @@ function PlatformReport() {
   );
 }
 
+function PlanModal({ account, onClose, onDone }) {
+  const plans = useApi("/admin/plans");
+  const [f, setF] = useState({
+    plan: account.plan,
+    plan_status: account.plan_status,
+    paid_until: account.paid_until ? String(account.paid_until).slice(0, 10) : "",
+    trial_ends_at: account.trial_ends_at ? String(account.trial_ends_at).slice(0, 10) : "",
+  });
+  const [run, busy] = useAction();
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`Plan for ${account.name}`}
+      footer={
+        <Button loading={busy} onClick={() => run(() => patch(`/admin/accounts/${account.id}`, { ...f, paid_until: f.paid_until || null, trial_ends_at: f.trial_ends_at || null }), "Plan updated").then(() => (onDone(), onClose()))}>
+          Save
+        </Button>
+      }
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Plan">
+          <Select value={f.plan} onChange={(e) => setF({ ...f, plan: e.target.value })}>
+            {(plans.data?.plans || []).map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+            {!plans.data?.plans?.some((p) => p.id === f.plan) && <option value={f.plan}>{f.plan}</option>}
+          </Select>
+        </Field>
+        <Field label="Status">
+          <Select value={f.plan_status} onChange={(e) => setF({ ...f, plan_status: e.target.value })} options={["trialing", "active", "past_due", "canceled"]} />
+        </Field>
+        <Field label="Paid until" hint="For bank / wallet payments">
+          <Input type="date" value={f.paid_until} onChange={(e) => setF({ ...f, paid_until: e.target.value })} />
+        </Field>
+        <Field label="Trial ends">
+          <Input type="date" value={f.trial_ends_at} onChange={(e) => setF({ ...f, trial_ends_at: e.target.value })} />
+        </Field>
+      </div>
+    </Modal>
+  );
+}
+
+function Plans() {
+  const { data, reload } = useApi("/admin/plans");
+  const [run, busy] = useAction();
+  const [billing, setBilling] = useState(null);
+  const [edit, setEdit] = useState(null);
+  useEffect(() => {
+    if (data) setBilling(data.settings);
+  }, [data]);
+  if (!data || !billing) return <Loading />;
+  return (
+    <div className="space-y-4">
+      <Card title="Billing" icon={CreditCard} actions={<Button size="sm" loading={busy} onClick={() => run(() => put("/admin/billing", billing), "Saved").then(reload)}>Save</Button>}>
+        <div className="space-y-3">
+          <Toggle checked={billing.enabled} onChange={(v) => setBilling({ ...billing, enabled: v })} label="Charge businesses with plans and limits" hint="Off = everything unlimited (good for running only your own stores)." />
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Field label="Free trial days">
+              <Input type="number" value={billing.trialDays} onChange={(e) => setBilling({ ...billing, trialDays: Number(e.target.value) })} />
+            </Field>
+            <Field label="Support contact" className="sm:col-span-2">
+              <Input value={billing.contact} onChange={(e) => setBilling({ ...billing, contact: e.target.value })} placeholder="WhatsApp or email for receipts" />
+            </Field>
+          </div>
+          <Field label="Bank / JazzCash / Easypaisa instructions" hint="Shown on every business's Billing page">
+            <Textarea value={billing.bankInstructions} onChange={(e) => setBilling({ ...billing, bankInstructions: e.target.value })} />
+          </Field>
+          <p className="text-xs text-gray-500">Card payments: {data.stripe ? "Stripe is connected ✅" : "add STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET, then a Stripe price ID per plan."}</p>
+        </div>
+      </Card>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {data.plans.map((p) => (
+          <Card key={p.id} title={p.name} actions={<Button size="sm" variant="ghost" onClick={() => setEdit({ ...p, features: (p.features || []).join("\n") })}>Edit</Button>}>
+            <div className="text-2xl font-bold">
+              {p.currency} {num(p.price)}
+            </div>
+            <div className="mt-2 space-y-0.5 text-xs text-gray-500">
+              <div>Stores: {p.limits.stores ?? "∞"}</div>
+              <div>Messages / month: {p.limits.messages ? num(p.limits.messages) : "∞"}</div>
+              <div>AI replies / month: {p.limits.aiReplies ? num(p.limits.aiReplies) : "∞"}</div>
+              <div>Users: {p.limits.users ?? "∞"}</div>
+              <div>{p.active ? "Visible" : "Hidden"} · Stripe: {p.stripe_price_id || "—"}</div>
+            </div>
+          </Card>
+        ))}
+      </div>
+      <Button variant="secondary" onClick={() => setEdit({ id: "", name: "", price: 0, currency: "USD", limits: {}, features: "", stripe_price_id: "", active: true, sort: data.plans.length, isNew: true })}>
+        Add plan
+      </Button>
+      {edit && (
+        <Modal
+          open
+          onClose={() => setEdit(null)}
+          title={edit.isNew ? "New plan" : `Edit ${edit.name}`}
+          footer={
+            <Button
+              loading={busy}
+              disabled={!edit.id || !edit.name}
+              onClick={() =>
+                run(
+                  () =>
+                    put(`/admin/plans/${edit.id}`, {
+                      name: edit.name,
+                      price: Number(edit.price),
+                      currency: edit.currency,
+                      limits: Object.fromEntries(["stores", "messages", "aiReplies", "users"].map((k) => [k, edit.limits[k] === "" || edit.limits[k] === undefined ? null : Number(edit.limits[k])])),
+                      features: String(edit.features).split("\n").map((x) => x.trim()).filter(Boolean),
+                      stripe_price_id: edit.stripe_price_id || null,
+                      active: edit.active,
+                      sort: Number(edit.sort || 0),
+                    }),
+                  "Plan saved"
+                ).then(() => (setEdit(null), reload()))
+              }
+            >
+              Save
+            </Button>
+          }
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            {edit.isNew && (
+              <Field label="Plan ID" hint="lowercase, e.g. business">
+                <Input value={edit.id} onChange={(e) => setEdit({ ...edit, id: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, "") })} />
+              </Field>
+            )}
+            <Field label="Name">
+              <Input value={edit.name} onChange={(e) => setEdit({ ...edit, name: e.target.value })} />
+            </Field>
+            <Field label="Price per month">
+              <Input type="number" value={edit.price} onChange={(e) => setEdit({ ...edit, price: e.target.value })} />
+            </Field>
+            <Field label="Currency">
+              <Input value={edit.currency} maxLength={3} onChange={(e) => setEdit({ ...edit, currency: e.target.value.toUpperCase() })} />
+            </Field>
+            {[
+              ["stores", "Stores"],
+              ["messages", "Messages / month"],
+              ["aiReplies", "AI replies / month"],
+              ["users", "Team members"],
+            ].map(([k, label]) => (
+              <Field key={k} label={label} hint="Empty = unlimited">
+                <Input type="number" value={edit.limits[k] ?? ""} onChange={(e) => setEdit({ ...edit, limits: { ...edit.limits, [k]: e.target.value } })} />
+              </Field>
+            ))}
+            <Field label="Stripe price ID" className="sm:col-span-2">
+              <Input value={edit.stripe_price_id || ""} onChange={(e) => setEdit({ ...edit, stripe_price_id: e.target.value })} placeholder="price_…" />
+            </Field>
+            <Field label="Features (one per line)" className="sm:col-span-2">
+              <Textarea value={edit.features} onChange={(e) => setEdit({ ...edit, features: e.target.value })} />
+            </Field>
+            <Toggle checked={edit.active} onChange={(v) => setEdit({ ...edit, active: v })} label="Show on the Billing page" />
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 function Accounts() {
   const { data, reload } = useApi("/admin/accounts");
   const [run] = useAction();
+  const [planFor, setPlanFor] = useState(null);
   const { refresh, setStoreId } = useSession();
   const navigate = useNavigate();
   async function view(a) {
@@ -133,6 +295,7 @@ function Accounts() {
         columns={[
           { key: "name", label: "Account", render: (a) => <div><div className="font-medium">{a.name}</div><div className="text-xs text-gray-500">{(a.owners || []).join(", ")}</div></div> },
           { key: "status", label: "Status", render: (a) => <Badge tone={a.status === "active" ? "green" : "red"}>{a.status}</Badge> },
+          { key: "plan", label: "Plan", render: (a) => <button className="text-left hover:underline" onClick={() => setPlanFor(a)}><div className="font-medium capitalize">{a.plan}</div><div className="text-xs text-gray-500">{a.plan_status}{a.paid_until ? ` · until ${String(a.paid_until).slice(0, 10)}` : ""}</div></button> },
           { key: "stores", label: "Stores" },
           { key: "users", label: "Users" },
           { key: "orders_30d", label: "Orders 30d", render: (a) => num(a.orders_30d) },
@@ -154,6 +317,7 @@ function Accounts() {
           },
         ]}
       />
+      {planFor && <PlanModal account={planFor} onClose={() => setPlanFor(null)} onDone={reload} />}
     </Card>
   );
 }
@@ -311,7 +475,7 @@ function Audit() {
 
 export default function Admin() {
   const [tab, setTab] = useState("overview");
-  const views = { overview: Overview, accounts: Accounts, stores: Stores, users: Users, orders: Orders, messages: Messages, jobs: Jobs, audit: Audit };
+  const views = { overview: Overview, accounts: Accounts, plans: Plans, stores: Stores, users: Users, orders: Orders, messages: Messages, jobs: Jobs, audit: Audit };
   const View = views[tab];
   return (
     <div className="space-y-4">

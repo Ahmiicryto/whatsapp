@@ -7,7 +7,8 @@ import { matchOption } from "../whatsapp/plain.js";
 import { aiAvailable, transcribe } from "../ai/provider.js";
 import { detectIntent, keywordIntent, agentReply } from "../ai/features.js";
 import { getStoreContext, invalidateStore } from "./stores.js";
-import { upsertConversation, recordInbound, sendText, applyStatus, windowOpen, canMessageFreely } from "./messaging.js";
+import { upsertConversation, recordInbound, sendText, sendSession, applyStatus, windowOpen, canMessageFreely } from "./messaging.js";
+import { searchProducts } from "./products.js";
 import { getOrder, queueTags, setOrderStatus } from "./orders.js";
 import * as flow from "./confirmation.js";
 import { raiseAlert } from "./alerts.js";
@@ -16,6 +17,8 @@ import { customerRecoveryChoice } from "./shipments.js";
 import { receiveRating, receiveReviewContent } from "./reviews.js";
 import { acceptUpsell, declineUpsell } from "./upsell.js";
 import { emitEvent } from "./webhooksOut.js";
+import { assertWithinPlan } from "./billing.js";
+import { countUsage } from "./audit.js";
 
 /** Hand the chat to a person: flag it and ping the team once (not on every message). */
 async function flagHuman(store, conversation, reason = "needs a reply") {
@@ -265,6 +268,16 @@ async function handlePayload(store, conversation, payload, customer, text) {
   return agentRespond(store, conversation, text || action);
 }
 
+/** Photo + price + one-tap buy link (Shopify cart permalink) for a catalog product. */
+async function sendProductCard(store, conversation, p) {
+  const v = (p.variants || []).find((x) => Number(x.inventory ?? 1) > 0) || (p.variants || [])[0];
+  const link = v ? `https://${store.shopifyDomain}/cart/${v.id}:1` : p.online_url || `https://${store.shopifyDomain}/products/${p.handle}`;
+  const caption = `*${p.title}*\n${formatMoney(v?.price ?? p.price_min, p.currency || store.currency)}\n\nOrder here: ${link}`;
+  const image = v?.image || p.image_url;
+  if (image) return sendSession(store, { to: conversation.phone_e164, conversation, payload: wa.imagePayload({ link: image, caption }), body: caption, kind: "product", aiGenerated: true });
+  return sendText(store, { to: conversation.phone_e164, conversation, body: caption, kind: "product", aiGenerated: true });
+}
+
 /** AI agent answers, or the conversation is flagged for a human. */
 export async function agentRespond(store, conversation, text, language) {
   const s = store.settings.ai;
@@ -287,9 +300,17 @@ export async function agentRespond(store, conversation, text, language) {
     .reverse()
     .map((m) => `${m.direction === "in" ? "Customer" : "Store"}: ${m.body}`)
     .join("\n");
+  const matches = await searchProducts(store.id, text, 6);
+  const catalog = matches.map((p) => ({ id: Number(p.shopify_product_id), title: p.title, price: Number(p.price_min), in_stock: Number(p.inventory ?? 1) > 0 }));
   try {
-    const r = await agentReply(store, { customerName: conversation.name, orders, history, message: text, language });
+    const r = await agentReply(store, { customerName: conversation.name, orders, history, message: text, language, catalog });
+    await assertWithinPlan(store.accountId, "aiReplies");
     await sendText(store, { to: conversation.phone_e164, conversation, kind: "agent", body: r.reply, aiGenerated: true });
+    await countUsage(store.accountId, "ai_replies");
+    for (const id of (r.recommend_product_ids || []).slice(0, 2)) {
+      const p = matches.find((m) => Number(m.shopify_product_id) === Number(id));
+      if (p) await sendProductCard(store, conversation, p).catch((err) => logger.warn({ err: err.message }, "product card failed"));
+    }
     if (r.handoff) await flagHuman(store, conversation);
   } catch (err) {
     logger.warn({ err: err.message }, "AI agent failed");

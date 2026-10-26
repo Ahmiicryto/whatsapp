@@ -26,6 +26,10 @@ import Help from "./pages/Help.jsx";
 import Shipments from "./pages/Shipments.jsx";
 import Fraud from "./pages/Fraud.jsx";
 import Profit from "./pages/Profit.jsx";
+import Reviews from "./pages/Reviews.jsx";
+import Flows from "./pages/Flows.jsx";
+import Billing from "./pages/Billing.jsx";
+import Developers from "./pages/Developers.jsx";
 import Install from "./pages/Install.jsx";
 import ClaimStore from "./pages/ClaimStore.jsx";
 
@@ -70,6 +74,10 @@ function App() {
         <Route path="shipments" element={<Shipments />} />
         <Route path="fraud" element={<Fraud />} />
         <Route path="profit" element={<Profit />} />
+        <Route path="reviews" element={<Reviews />} />
+        <Route path="flows" element={<Flows />} />
+        <Route path="billing" element={<Billing />} />
+        <Route path="developers" element={<Developers />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

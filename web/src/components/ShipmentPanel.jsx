@@ -118,8 +118,11 @@ export function ShipmentCard({ order, storeId, shipments, onChange, canAct }) {
             </div>
           </div>
           {sh.reschedule && (
-            <div className="flex items-center gap-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-              <AlertTriangle className="h-4 w-4" /> Customer chose: <b>{sh.reschedule.choice === "cancel" ? "cancel / return" : "deliver again"}</b> ({dateTime(sh.reschedule.at)})
+            <div className="flex items-start gap-2 rounded-lg bg-amber-50 p-2 text-xs text-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>
+                Customer chose <b>{sh.reschedule.choice === "cancel" ? "cancel / return" : "deliver again"}</b> · {dateTime(sh.reschedule.at)}
+              </span>
             </div>
           )}
           {(sh.events || []).length > 0 && (

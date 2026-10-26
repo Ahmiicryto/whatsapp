@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { assertWithinPlan } from "../../services/billing.js";
 import { z } from "zod";
 import { one, many, query } from "../../db/pool.js";
 import { ah, badRequest, forbidden, notFound } from "../../lib/errors.js";
@@ -53,6 +54,7 @@ r.post(
   requireRole("admin"),
   ah(async (req, res) => {
     const body = manualSchema.parse(req.body);
+    await assertWithinPlan(req.accountId, "stores", { http: true });
     const shop = normalizeShopDomain(body.shopDomain);
     if (!isValidShopDomain(shop)) throw badRequest("Use the store's xxx.myshopify.com domain");
     if (!/^shp(at|ca|ua)_/.test(body.accessToken.trim())) {

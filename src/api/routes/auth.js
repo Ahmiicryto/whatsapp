@@ -6,6 +6,7 @@ import { ah, badRequest, unauthorized, forbidden } from "../../lib/errors.js";
 import { config } from "../../config.js";
 import { hashPassword, checkPassword, createSession, destroySession, requireAuth, accessibleStoreIds } from "../auth.js";
 import { audit } from "../../services/audit.js";
+import { startTrial, accountPlan } from "../../services/billing.js";
 
 const r = Router();
 // Key by the client IP from the proxy header ourselves: serverless platforms (Vercel) don't always
@@ -40,6 +41,7 @@ r.post(
       const user = (await c.query(`INSERT INTO users (email, password_hash, name) VALUES ($1,$2,$3) RETURNING id`, [email, hash, body.name])).rows[0];
       const account = (await c.query(`INSERT INTO accounts (name) VALUES ($1) RETURNING id`, [body.accountName])).rows[0];
       await c.query(`INSERT INTO memberships (user_id, account_id, role) VALUES ($1,$2,'owner')`, [user.id, account.id]);
+      await startTrial(c, account.id);
       return { user, account };
     });
     await createSession(res, user.id, { accountId: account.id });
@@ -87,7 +89,11 @@ r.get(
       const a = await one(`SELECT id, name, status FROM accounts WHERE id=$1`, [req.accountId]);
       if (a) accounts = [...accounts, { ...a, role: "owner", viaSuperAdmin: true }];
     }
+    const plan = req.accountId ? await accountPlan(req.accountId) : null;
     res.json({
+      billing: plan?.billingEnabled
+        ? { plan: plan.plan?.name || plan.account?.plan, status: plan.account?.plan_status, active: plan.active, reason: plan.reason, trialEndsAt: plan.account?.trial_ends_at, paidUntil: plan.account?.paid_until }
+        : null,
       user: req.user,
       accountId: req.accountId,
       role: req.user.isSuperAdmin ? "owner" : req.membership?.role || null,
