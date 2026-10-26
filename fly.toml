@@ -1,0 +1,25 @@
+# Fly.io:  fly launch --no-deploy  →  fly secrets set DATABASE_URL=... SESSION_SECRET=... ENCRYPTION_KEY=...  →  fly deploy
+app = "wa-commerce"
+primary_region = "sin"
+
+[build]
+
+[processes]
+  web = "node src/server.js"
+  worker = "node src/worker.js"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  auto_stop_machines = "off" # webhooks and schedules need it awake
+  min_machines_running = 1
+  processes = ["web"]
+
+[[http_service.checks]]
+  path = "/healthz"
+  interval = "30s"
+  timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

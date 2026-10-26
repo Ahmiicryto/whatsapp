@@ -272,7 +272,7 @@ export function Table({ columns, rows, onRowClick, empty = "Nothing here yet" })
 const supportsClosedBy = typeof HTMLDialogElement !== "undefined" && "closedBy" in HTMLDialogElement.prototype;
 
 /** Native <dialog> opened with showModal(): focus trap, Esc and backdrop light-dismiss, animated in and out. */
-export function Modal({ open, onClose, title, children, footer, wide }) {
+export function Modal({ open, onClose, title, children, footer, wide, drawer, bare, className }) {
   const ref = useRef(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -311,8 +311,17 @@ export function Modal({ open, onClose, title, children, footer, wide }) {
 
   if (!open) return null;
   return (
-    <dialog ref={ref} closedby="any" aria-labelledby="modal-title" className={cx("modal w-[calc(100%-2rem)] text-gray-900 dark:text-gray-100", wide ? "max-w-3xl" : "max-w-lg")}>
-      <div className="flex max-h-[86vh] flex-col overflow-hidden rounded-2xl border border-white/60 bg-white shadow-lift dark:border-gray-800 dark:bg-gray-900">
+    <dialog
+      ref={ref}
+      closedby="any"
+      aria-labelledby={bare ? undefined : "modal-title"}
+      aria-label={bare ? title : undefined}
+      className={cx("modal text-gray-900 dark:text-gray-100", drawer ? "drawer w-full max-w-md" : "w-[calc(100%-2rem)]", !drawer && (wide ? "max-w-3xl" : "max-w-lg"), className)}
+    >
+      {bare ? (
+        children(requestClose)
+      ) : (
+      <div className={cx("flex flex-col overflow-hidden border border-white/60 bg-white shadow-lift dark:border-gray-800 dark:bg-gray-900", drawer ? "h-dvh rounded-l-2xl" : "max-h-[86vh] rounded-2xl")}>
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4 dark:border-gray-800">
           <h3 id="modal-title" className="font-semibold tracking-tight">
             {title}
@@ -321,9 +330,10 @@ export function Modal({ open, onClose, title, children, footer, wide }) {
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="overflow-y-auto p-5">{children}</div>
+        <div className="flex-1 overflow-y-auto p-5">{children}</div>
         {footer && <div className="flex justify-end gap-2 border-t border-gray-100 bg-gray-50/60 px-5 py-3 dark:border-gray-800 dark:bg-gray-900">{footer}</div>}
       </div>
+      )}
     </dialog>
   );
 }

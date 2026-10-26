@@ -3,6 +3,7 @@ import { useState } from "react";
 import { useApi, qs, post } from "../lib/api.js";
 import { useSession } from "../lib/session.jsx";
 import { money, num, compact, STATUS_LABEL } from "../lib/format.js";
+import Onboarding from "../components/Onboarding.jsx";
 import { Card, Stat, Loading, ErrorBox, PageHeader, Select, Button, Input, Empty } from "../components/ui.jsx";
 import { TrendChart, ColumnChart, BarList } from "../components/charts.jsx";
 import { Link } from "react-router-dom";
@@ -71,6 +72,7 @@ export default function Dashboard() {
         subtitle={storeId === "all" ? `All ${stores.length} stores` : stores.find((s) => String(s.id) === storeId)?.name}
         actions={<Select value={days} onChange={(e) => setDays(e.target.value)} options={RANGES} className="w-40" />}
       />
+      <Onboarding />
       {loading && <div className="text-xs text-gray-400">Refreshing…</div>}
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">

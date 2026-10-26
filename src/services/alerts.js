@@ -2,6 +2,23 @@ import { one, many } from "../db/pool.js";
 import { enqueue } from "../queue/queue.js";
 import { sendTemplate } from "./messaging.js";
 import { logger } from "../logger.js";
+import { notify } from "./notifications.js";
+
+const ALERT_TITLES = {
+  high_risk: "High-risk order",
+  high_value: "High-value order",
+  failed_spike: "Messages are failing",
+  low_confirmation: "Low confirmation rate",
+  uninstalled: "Shopify app uninstalled",
+  gateway_logout: "WhatsApp was logged out",
+  quality: "WhatsApp quality dropped",
+};
+const ALERT_LINKS = {
+  high_risk: () => "/orders?filter=attention",
+  gateway_logout: (s) => `/stores/${s.id}?tab=whatsapp`,
+  uninstalled: (s) => `/stores/${s.id}`,
+  quality: (s) => `/stores/${s.id}?tab=whatsapp`,
+};
 
 /** Records an alert once per dedupe key and queues WhatsApp notifications to owner numbers. */
 export async function raiseAlert(store, kind, dedupeKey, message) {
@@ -11,6 +28,7 @@ export async function raiseAlert(store, kind, dedupeKey, message) {
     [store.accountId, store.id, kind, dedupeKey, message]
   );
   if (!row) return false;
+  await notify({ accountId: store.accountId, storeId: store.id, kind: `alert.${kind}`, severity: ["high_value"].includes(kind) ? "success" : "warning", title: ALERT_TITLES[kind] || "Store alert", body: message, link: ALERT_LINKS[kind]?.(store) || null });
   await enqueue("alert.send", { storeId: store.id, alertId: row.id });
   return true;
 }

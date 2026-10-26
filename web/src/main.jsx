@@ -22,6 +22,7 @@ import Team from "./pages/Team.jsx";
 import Admin from "./pages/Admin.jsx";
 import Products from "./pages/Products.jsx";
 import Profile from "./pages/Profile.jsx";
+import Help from "./pages/Help.jsx";
 import Install from "./pages/Install.jsx";
 import ClaimStore from "./pages/ClaimStore.jsx";
 
@@ -62,6 +63,7 @@ function App() {
         <Route path="admin" element={<Admin />} />
         <Route path="products" element={<Products />} />
         <Route path="profile" element={<Profile />} />
+        <Route path="help" element={<Help />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

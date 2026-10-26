@@ -123,6 +123,20 @@ dialog.modal {
     transition-behavior: allow-discrete;
   }
 }
+/* Right-hand drawer variant (help guides) */
+dialog.modal.drawer {
+  margin: 0 0 0 auto;
+  height: 100dvh;
+  max-height: 100dvh;
+  transform: translateX(24px);
+}
+dialog.modal.drawer[open]:where(:not([data-closing])) {
+  transform: none;
+  @starting-style { transform: translateX(24px); }
+}
+/* Command palette sits higher on the screen */
+dialog.modal.palette { margin-top: 12vh; }
+
 /* data-closing lets the exit animate while the dialog is still in the top layer (Safari/Firefox) */
 dialog.modal[open]:where(:not([data-closing])) {
   opacity: 1;

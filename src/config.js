@@ -14,6 +14,13 @@ const schema = z.object({
   RENDER_EXTERNAL_URL: z.string().optional(),
   VERCEL: z.string().optional(),
   VERCEL_PROJECT_PRODUCTION_URL: z.string().optional(),
+  SERVERLESS: bool(false), // Netlify / Lambda / Cloud Run scale-to-zero: run jobs after each request + /api/cron/tick
+  RAILWAY_PUBLIC_DOMAIN: z.string().optional(),
+  FLY_APP_NAME: z.string().optional(),
+  URL: z.string().optional(), // Netlify
+  STRIPE_SECRET_KEY: z.string().optional(),
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  BILLING_ENABLED: bool(false),
   CRON_SECRET: z.string().optional(),
   DB_POOL_MAX: z.coerce.number().optional(),
   DATABASE_URL: z.string().optional(),
@@ -78,11 +85,16 @@ export const config = {
     env.APP_BASE_URL ||
     env.RENDER_EXTERNAL_URL ||
     (env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${env.VERCEL_PROJECT_PRODUCTION_URL}` : null) ||
+    (env.RAILWAY_PUBLIC_DOMAIN ? `https://${env.RAILWAY_PUBLIC_DOMAIN}` : null) ||
+    (env.FLY_APP_NAME ? `https://${env.FLY_APP_NAME}.fly.dev` : null) ||
+    (env.URL?.startsWith("https://") ? env.URL : null) ||
     `http://localhost:${env.PORT}`
   ).replace(/\/$/, ""),
-  serverless: !!env.VERCEL,
+  serverless: !!env.VERCEL || env.SERVERLESS,
   cronSecret: env.CRON_SECRET,
-  dbPoolMax: env.DB_POOL_MAX ?? (env.VERCEL ? 3 : 10),
+  dbPoolMax: env.DB_POOL_MAX ?? (env.VERCEL || env.SERVERLESS ? 3 : 10),
+  stripe: { secretKey: env.STRIPE_SECRET_KEY, webhookSecret: env.STRIPE_WEBHOOK_SECRET },
+  billingEnabled: env.BILLING_ENABLED,
   databaseUrl: env.DATABASE_URL || env.POSTGRES_URL || "postgres://localhost:5432/wa_commerce",
   databaseSsl: env.DATABASE_SSL,
   sessionSecret: env.SESSION_SECRET,

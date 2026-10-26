@@ -22,6 +22,7 @@ import reportRoutes from "./api/routes/reports.js";
 import teamRoutes from "./api/routes/team.js";
 import adminRoutes from "./api/routes/admin.js";
 import productRoutes from "./api/routes/products.js";
+import workspaceRoutes from "./api/routes/workspace.js";
 import { isAuthorizedCron, runTick } from "./serverless.js";
 
 const webDist = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist", "web");
@@ -101,6 +102,7 @@ export function createApp() {
   api.use(reportRoutes);
   api.use(teamRoutes);
   api.use(productRoutes);
+  api.use(workspaceRoutes);
   api.use("/admin", adminRoutes);
   app.use("/api", api);
   app.use("/api", (_req, _res, next) => next(new HttpError(404, "API route not found")));

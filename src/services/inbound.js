@@ -11,6 +11,24 @@ import { upsertConversation, recordInbound, sendText, applyStatus, windowOpen, c
 import { getOrder, queueTags, setOrderStatus } from "./orders.js";
 import * as flow from "./confirmation.js";
 import { raiseAlert } from "./alerts.js";
+import { notify } from "./notifications.js";
+
+/** Hand the chat to a person: flag it and ping the team once (not on every message). */
+async function flagHuman(store, conversation, reason = "needs a reply") {
+  const row = await one(`UPDATE conversations c SET needs_human=true FROM conversations old WHERE c.id=$1 AND old.id=c.id RETURNING old.needs_human AS was`, [conversation.id]);
+  if (row && !row.was) {
+    await notify({
+      accountId: store.accountId,
+      storeId: store.id,
+      userId: conversation.assigned_user_id || null,
+      kind: "inbox.human",
+      severity: "warning",
+      title: `${conversation.name || conversation.phone_e164} ${reason}`,
+      body: conversation.last_message_preview || null,
+      link: `/inbox/${conversation.id}`,
+    });
+  }
+}
 
 const OPEN_STATUSES = ["new", "awaiting_reply", "no_response", "confirmed"];
 
@@ -111,7 +129,7 @@ export async function handleMessageEvent(ev) {
     return;
   }
   if (!text.trim()) {
-    await query(`UPDATE conversations SET needs_human=true WHERE id=$1`, [conversation.id]);
+    await flagHuman(store, conversation);
     return;
   }
 
@@ -140,7 +158,7 @@ export async function handleMessageEvent(ev) {
       if (pending && pending.status !== "confirmed") return flow.requestCancel(store, pending, conversation);
       if (pending) {
         // confirmed orders may already be packed: let a human decide
-        await query(`UPDATE conversations SET needs_human=true WHERE id=$1`, [conversation.id]);
+        await flagHuman(store, conversation);
         await setOrderStatus(pending.id, pending.status, { needs_attention: true });
         return sendText(store, { to: phone, conversation, orderId: pending.id, kind: "agent", body: `We've received your request to cancel order ${pending.name}. Our team will get back to you shortly.` });
       }
@@ -201,7 +219,7 @@ export async function agentRespond(store, conversation, text, language) {
   const s = store.settings.ai;
   const paused = conversation.ai_paused_until && new Date(conversation.ai_paused_until) > new Date();
   if (!s.agent || paused || !aiAvailable(store) || !canMessageFreely(store, conversation)) {
-    await query(`UPDATE conversations SET needs_human=true WHERE id=$1`, [conversation.id]);
+    await flagHuman(store, conversation);
     return;
   }
   const orders = await many(
@@ -221,10 +239,10 @@ export async function agentRespond(store, conversation, text, language) {
   try {
     const r = await agentReply(store, { customerName: conversation.name, orders, history, message: text, language });
     await sendText(store, { to: conversation.phone_e164, conversation, kind: "agent", body: r.reply, aiGenerated: true });
-    if (r.handoff) await query(`UPDATE conversations SET needs_human=true WHERE id=$1`, [conversation.id]);
+    if (r.handoff) await flagHuman(store, conversation);
   } catch (err) {
     logger.warn({ err: err.message }, "AI agent failed");
-    await query(`UPDATE conversations SET needs_human=true WHERE id=$1`, [conversation.id]);
+    await flagHuman(store, conversation);
   }
 }
 

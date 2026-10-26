@@ -1,0 +1,5 @@
+# Automatic HTTPS (Let's Encrypt) in front of the app. Set DOMAIN in .env and point its DNS to this server.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy web:3000
+}

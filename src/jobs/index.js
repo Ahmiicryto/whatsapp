@@ -22,6 +22,8 @@ import { splitBundles } from "../bundles/splitter.js";
 import { tx } from "../db/pool.js";
 import { syncProducts, upsertProduct, deleteProduct, fillOrderItemImages } from "../services/products.js";
 import { normalizeWebhookProduct } from "../shopify/products.js";
+import { emitEvent, deliverWebhook } from "../services/webhooksOut.js";
+import { pruneNotifications } from "../services/notifications.js";
 
 async function activeStore(storeId) {
   const store = await getStoreContext(storeId);
@@ -294,6 +296,7 @@ async function dailyMaintenance() {
   await query(`DELETE FROM webhook_events WHERE received_at < now() - interval '30 days'`);
   await query(`DELETE FROM cron_runs WHERE created_at < now() - interval '3 days'`);
   await query(`DELETE FROM oauth_states WHERE created_at < now() - interval '1 day'`);
+  await pruneNotifications();
 }
 
 async function dispatchDueCampaigns() {
@@ -368,6 +371,8 @@ export const handlers = {
     if (store.shopifyToken) await syncProducts(store);
   }),
   "templates.install": withStore((store) => installDefaultTemplates(store, { submit: true })),
+  "webhooks.emit": (d) => emitEvent(d),
+  "webhooks.deliver": (d) => deliverWebhook(d),
   "cron.reconcile": reconcileAll,
   "cron.reports": () => queueDueReports(),
   "cron.campaigns": dispatchDueCampaigns,

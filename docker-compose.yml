@@ -1,0 +1,68 @@
+# Everything on one server (VPS, home server, Coolify, Dokploy…):
+#   cp .env.example .env   # fill it in
+#   docker compose up -d --build
+# Add the "https" profile for automatic HTTPS with Caddy:  docker compose --profile https up -d
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wa
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      POSTGRES_DB: wa
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wa"]
+      interval: 5s
+      retries: 10
+
+  web:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://wa:${POSTGRES_PASSWORD:-change-me}@db:5432/wa
+      DATABASE_SSL: "false"
+      GATEWAY_URL: ${GATEWAY_URL:-http://gateway:4000}
+    ports: ["${WEB_PORT:-3000}:3000"]
+    depends_on:
+      db: { condition: service_healthy }
+
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["node", "src/worker.js"]
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://wa:${POSTGRES_PASSWORD:-change-me}@db:5432/wa
+      DATABASE_SSL: "false"
+      GATEWAY_URL: ${GATEWAY_URL:-http://gateway:4000}
+    depends_on:
+      db: { condition: service_healthy }
+
+  # Optional WhatsApp QR login (unofficial). Remove if you only use the official Cloud API.
+  gateway:
+    build: ./gateway
+    restart: unless-stopped
+    environment:
+      GATEWAY_SECRET: ${GATEWAY_SECRET}
+      APP_WEBHOOK_URL: http://web:3000/webhooks/gateway
+      DATABASE_URL: postgres://wa:${POSTGRES_PASSWORD:-change-me}@db:5432/wa
+    depends_on:
+      db: { condition: service_healthy }
+
+  caddy:
+    image: caddy:2-alpine
+    profiles: ["https"]
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+    depends_on: [web]
+
+volumes:
+  pgdata:
+  caddy_data:
