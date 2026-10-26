@@ -23,6 +23,9 @@ import Admin from "./pages/Admin.jsx";
 import Products from "./pages/Products.jsx";
 import Profile from "./pages/Profile.jsx";
 import Help from "./pages/Help.jsx";
+import Shipments from "./pages/Shipments.jsx";
+import Fraud from "./pages/Fraud.jsx";
+import Profit from "./pages/Profit.jsx";
 import Install from "./pages/Install.jsx";
 import ClaimStore from "./pages/ClaimStore.jsx";
 
@@ -64,6 +67,9 @@ function App() {
         <Route path="products" element={<Products />} />
         <Route path="profile" element={<Profile />} />
         <Route path="help" element={<Help />} />
+        <Route path="shipments" element={<Shipments />} />
+        <Route path="fraud" element={<Fraud />} />
+        <Route path="profit" element={<Profit />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

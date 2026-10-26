@@ -1,3 +1,4 @@
+import { orderEvent } from "./events.js";
 import { one, query } from "../db/pool.js";
 import { enqueue, cancelJobs } from "../queue/queue.js";
 import { Reschedule, PermanentError } from "../lib/errors.js";
@@ -86,6 +87,7 @@ export async function markNoResponse(store, orderId) {
   if (!order || order.status !== "awaiting_reply") return;
   const updated = await setOrderStatus(order.id, "no_response", { needs_attention: true });
   await queueTags(store, updated, { add: ["noResponse"] });
+  await orderEvent(store, updated, "order.no_response");
 }
 
 // ---------------------------------------------------------------- customer actions
@@ -123,6 +125,7 @@ export async function confirmOrder(store, order, conversation, { source = "custo
   const updated = await setOrderStatus(order.id, "confirmed", { confirmed_at: new Date(), needs_attention: false });
   await cancelJobs(`order:${order.id}:confirm:`);
   await queueTags(store, updated, { add: ["confirmed"], remove: ["sent", "noResponse"] });
+  await orderEvent(store, updated, "order.confirmed");
   if (source !== "customer" || !conversation) return updated;
 
   const s = store.settings;
@@ -223,6 +226,7 @@ export async function cancelByCustomer(store, order, conversation, reason) {
   const updated = await setOrderStatus(order.id, "cancelled_by_customer", { cancelled_at: new Date(), cancel_reason: reason, needs_attention: false });
   await cancelJobs(`order:${order.id}:confirm:`);
   await queueTags(store, updated, { add: ["cancelled"], remove: ["sent", "confirmed", "noResponse"] });
+  await orderEvent(store, updated, "order.cancelled");
   if (store.settings.confirmation.autoCancelInShopify) {
     await enqueue("shopify.cancel", { storeId: store.id, orderId: order.id }, { singletonKey: `order:${order.id}:shopify-cancel` });
   }

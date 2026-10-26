@@ -1,7 +1,10 @@
 import { one, many, query } from "../db/pool.js";
-import { fetchAllProducts } from "../shopify/products.js";
+import { fetchAllProducts, fetchVariantCosts } from "../shopify/products.js";
+import { enqueue } from "../queue/queue.js";
+import { logger } from "../logger.js";
 
 export async function upsertProduct(store, p) {
+  const before = await one(`SELECT variants, inventory FROM products WHERE store_id=$1 AND shopify_product_id=$2`, [store.id, p.shopifyProductId]);
   await query(
     `INSERT INTO products (store_id, shopify_product_id, title, handle, status, product_type, vendor, tags, image_url, images,
         price_min, price_max, currency, inventory, variants, online_url, updated_at)
@@ -15,6 +18,15 @@ export async function upsertProduct(store, p) {
       JSON.stringify(p.images), p.priceMin, p.priceMax, p.currency || store.currency, p.inventory, JSON.stringify(p.variants), p.onlineUrl,
     ]
   );
+  // Back in stock: a variant (or the product) went from 0 to available -> message the people waiting for it.
+  if (before && store.settings?.backInStock?.enabled !== false) {
+    const old = Object.fromEntries((before.variants || []).map((v) => [v.id, Number(v.inventory ?? 0)]));
+    const restocked = (p.variants || []).filter((v) => Number(v.inventory ?? 0) > 0 && old[v.id] !== undefined && old[v.id] <= 0).map((v) => v.id);
+    const productRestocked = Number(before.inventory ?? 0) <= 0 && Number(p.inventory ?? 0) > 0;
+    if (restocked.length || productRestocked) {
+      await enqueue("stock.restocked", { storeId: store.id, productId: p.shopifyProductId, variantIds: restocked, any: productRestocked });
+    }
+  }
 }
 
 /** Full catalog sync; also fills missing order item images from the catalog. */
@@ -22,6 +34,20 @@ export async function syncProducts(store) {
   const products = await fetchAllProducts(store);
   for (const p of products) await upsertProduct(store, p);
   await fillOrderItemImages(store.id);
+  try {
+    const costs = await fetchVariantCosts(store);
+    if (Object.keys(costs).length) {
+      await query(
+        `UPDATE products p SET variants = (SELECT jsonb_agg(CASE WHEN ($2::jsonb ? (v->>'id')) THEN v || jsonb_build_object('cost', ($2::jsonb ->> (v->>'id'))::numeric) ELSE v END) FROM jsonb_array_elements(p.variants) v),
+                cost = (SELECT avg(($2::jsonb ->> (v->>'id'))::numeric) FROM jsonb_array_elements(p.variants) v WHERE $2::jsonb ? (v->>'id'))
+          WHERE p.store_id=$1 AND jsonb_array_length(p.variants) > 0`,
+        [store.id, JSON.stringify(costs)]
+      );
+    }
+  } catch (err) {
+    logger.info({ store: store.id, err: err.message }, "product costs not available (needs read_inventory scope)");
+  }
+  await fillOrderItemCosts(store.id);
   return products.length;
 }
 
@@ -67,4 +93,34 @@ export async function listProducts(storeIds, { q, limit = 48, offset = 0 } = {})
   );
   const total = await one(`SELECT count(*)::int AS n FROM products p WHERE ${where}`, params);
   return { rows, total: total.n };
+}
+
+/** Unit cost for order items: manual override > variant cost > product average cost. */
+export async function fillOrderItemCosts(storeId, orderId = null) {
+  await query(
+    `UPDATE order_items i SET unit_cost = COALESCE(
+        (SELECT p.cost_override FROM products p WHERE p.store_id=i.store_id AND p.shopify_product_id=i.product_id),
+        (SELECT (v->>'cost')::numeric FROM products p, jsonb_array_elements(p.variants) v
+          WHERE p.store_id=i.store_id AND (v->>'id')::bigint = i.variant_id AND v->>'cost' IS NOT NULL LIMIT 1),
+        (SELECT p.cost FROM products p WHERE p.store_id=i.store_id AND p.shopify_product_id=i.product_id))
+      WHERE i.store_id=$1 ${orderId ? "AND i.order_id=$2" : "AND i.unit_cost IS NULL"}`,
+    orderId ? [storeId, orderId] : [storeId]
+  );
+}
+
+/** Search the catalog for the AI agent / inbox product picker. */
+export async function searchProducts(storeId, text, limit = 5) {
+  const words = String(text || "")
+    .toLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((w) => w.length >= 3)
+    .slice(0, 6);
+  if (!words.length) return [];
+  const params = [storeId, words.map((w) => `%${w}%`)];
+  return many(
+    `SELECT shopify_product_id, title, image_url, price_min, price_max, currency, inventory, online_url, handle, variants
+       FROM products WHERE store_id=$1 AND status <> 'archived' AND title ILIKE ANY($2)
+      ORDER BY (inventory > 0) DESC NULLS LAST, updated_at DESC LIMIT ${Number(limit)}`,
+    params
+  );
 }

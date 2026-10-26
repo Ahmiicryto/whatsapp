@@ -28,6 +28,8 @@ export function parseWebhook(body) {
             contextId: m.context?.id || null,
             text: null,
             payload: null,
+            // Click-to-WhatsApp ad that started the chat (for ad attribution)
+            referral: m.referral ? { source_url: m.referral.source_url || null, source_id: m.referral.source_id || null, source_type: m.referral.source_type || null, headline: m.referral.headline || null, ctwa_clid: m.referral.ctwa_clid || null } : null,
           };
           switch (m.type) {
             case "text":

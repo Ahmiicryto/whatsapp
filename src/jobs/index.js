@@ -20,7 +20,16 @@ import { normalizeWebhookOrder, fetchVariantImages, fetchOrdersSince, fetchOrder
 import { registerWebhooks } from "../shopify/webhooks.js";
 import { splitBundles } from "../bundles/splitter.js";
 import { tx } from "../db/pool.js";
-import { syncProducts, upsertProduct, deleteProduct, fillOrderItemImages } from "../services/products.js";
+import { syncProducts, upsertProduct, deleteProduct, fillOrderItemImages, fillOrderItemCosts } from "../services/products.js";
+import { bookShipment, syncShipment, notifyShipment, queueShipmentSync, fulfillInShopify } from "../services/shipments.js";
+import { fulfillOrder } from "../shopify/fulfillment.js";
+import { advanceAmountFor, requestAdvance } from "../services/fraud.js";
+import { runRules, runSteps } from "../services/rules.js";
+import { orderEvent } from "../services/events.js";
+import { notify } from "../services/notifications.js";
+import { scheduleReviewAsk, sendReviewAsk } from "../services/reviews.js";
+import { onRestock } from "../services/stock.js";
+import { sendUpsellOffer } from "../services/upsell.js";
 import { normalizeWebhookProduct } from "../shopify/products.js";
 import { emitEvent, deliverWebhook } from "../services/webhooksOut.js";
 import { pruneNotifications } from "../services/notifications.js";
@@ -58,6 +67,7 @@ export async function processOrder(store, orderId) {
   let order = await getOrder(orderId);
   if (!order || order.status !== "new") return;
   const items = await enrichImages(store, order);
+  await fillOrderItemCosts(store.id, order.id);
 
   if (store.settings.bundles.enabled) {
     await enqueue("bundle.split", { storeId: store.id, orderId }, { singletonKey: `order:${orderId}:bundle` });
@@ -68,6 +78,16 @@ export async function processOrder(store, orderId) {
   if (store.settings.risk.enabled) {
     const risk = await scoreOrderRisk(store, order, items);
     order = await setOrderStatus(order.id, order.status, { risk_score: risk.score, risk_reasons: JSON.stringify(risk.reasons) });
+    if (risk.blocked) {
+      const action = store.settings.fraud.blockAction;
+      await queueTags(store, order, { add: ["blocked"] });
+      await notify({ accountId: store.accountId, storeId: store.id, kind: "fraud.blocked_order", severity: "danger", title: `Order ${order.name} is from a blocked number`, body: `${order.phone_e164}${risk.blocked.reason ? ` · ${risk.blocked.reason}` : ""}. Action: ${action}.`, link: `/orders/${order.id}` });
+      if (action === "cancel") {
+        await setOrderStatus(order.id, "cancelled", { cancelled_at: new Date(), cancel_reason: "blocked number" });
+        if (store.shopifyToken) await enqueue("shopify.cancel", { storeId: store.id, orderId: order.id, status: "cancelled" });
+        return;
+      }
+    }
     if (risk.score >= store.settings.risk.highThreshold) {
       await queueTags(store, order, { add: ["riskHigh"] });
       await setOrderStatus(order.id, order.status, { needs_attention: true });
@@ -81,6 +101,16 @@ export async function processOrder(store, orderId) {
     await raiseAlert(store, "high_value", `hv:${order.id}`, `High value order ${order.name} for ${formatMoney(order.total, order.currency)} from ${order.address_text || "unknown city"}`);
   }
   await marketing.attributeOrder(store, order);
+  // Click-to-WhatsApp ads: the chat that led to this order started from an ad within the last 7 days
+  if (order.phone_e164) {
+    const ad = await one(
+      `SELECT state->'referral' AS referral FROM conversations WHERE store_id=$1 AND phone_e164=$2 AND state ? 'referral'
+          AND (state->'referral'->>'at')::timestamptz > now() - interval '7 days'`,
+      [store.id, order.phone_e164]
+    );
+    if (ad?.referral) order = await setOrderStatus(order.id, order.status, { ad_source: ad.referral });
+  }
+  await orderEvent(store, order, "order.created");
 
   if (!isEligibleForConfirmation(store, order)) {
     await setOrderStatus(order.id, "not_eligible");
@@ -291,6 +321,7 @@ async function dailyMaintenance() {
     await enqueue("store.products", { storeId: s.id }, { singletonKey: `store:${s.id}:products` });
     const store = await getStoreContext(s.id);
     await marketing.queueWinBacks(store);
+    await installDefaultTemplates(store, { submit: !!store.wa?.wabaId }).catch((err) => logger.warn({ err: err.message }, "template install failed"));
   }
   await query(`DELETE FROM jobs WHERE status='done' AND updated_at < now() - interval '7 days'`);
   await query(`DELETE FROM webhook_events WHERE received_at < now() - interval '30 days'`);
@@ -311,6 +342,51 @@ async function syncPendingTemplates() {
   for (const s of stores) {
     const store = await getStoreContext(s.store_id);
     if (store?.wa?.wabaId) await syncTemplates(store).catch((err) => logger.warn({ err: err.message }, "template sync failed"));
+  }
+}
+
+// ---------------------------------------------------------------- order events: rules, webhooks, follow-ups
+
+function publicOrder(o) {
+  return {
+    id: o.id,
+    shopify_order_id: o.shopify_order_id,
+    name: o.name,
+    status: o.status,
+    customer_name: o.customer_name,
+    phone: o.phone_e164,
+    total: Number(o.total),
+    currency: o.currency,
+    is_cod: o.is_cod,
+    city: o.shipping_address?.city || null,
+    address: o.address_text,
+    risk_score: o.risk_score,
+    tags: o.shopify_tags,
+    created_at: o.shopify_created_at,
+  };
+}
+
+async function handleOrderEvent(store, { orderId, event }) {
+  const order = await getOrder(orderId);
+  if (!order) return;
+  await runRules(store, order, event);
+  if (!event.startsWith("shipment.")) await emitEvent({ accountId: store.accountId, event, data: publicOrder(order) });
+  if (event === "shipment.delivered") await scheduleReviewAsk(store, order);
+  if (event !== "order.confirmed") return;
+
+  const blockedAdvance = store.settings.fraud.blockAction === "advance" && order.shopify_tags.includes(store.settings.tags.blocked);
+  const amount = advanceAmountFor(store, order) || (blockedAdvance && order.advance_status === "none" ? Number(store.settings.advance.amount || 0) : 0);
+  if (amount > 0 && order.advance_status === "none") {
+    await requestAdvance(store, order, { amount });
+    return;
+  }
+  const c = store.settings.couriers;
+  const risky = Number(order.risk_score || 0) >= Number(store.settings.risk.highThreshold || 60);
+  if (c.autoBook && !(c.skipRisky && risky) && order.advance_status !== "requested") {
+    await enqueue("shipment.book", { storeId: store.id, orderId: order.id, source: "auto" }, { singletonKey: `order:${order.id}:book`, delayMs: 30000 });
+  }
+  if (store.settings.upsell.enabled && store.settings.upsell.variantId) {
+    await enqueue("upsell.offer", { storeId: store.id, orderId: order.id }, { singletonKey: `order:${order.id}:upsell`, delayMs: 60000 });
   }
 }
 
@@ -349,7 +425,7 @@ export const handlers = {
     const order = await getOrder(d.orderId);
     if (order && store.shopifyToken) {
       await cancelOrder(store, order.shopify_order_id);
-      await setOrderStatus(order.id, "cancelled_by_customer", { cancelled_at: new Date() });
+      await setOrderStatus(order.id, d.status || (order.status === "cancelled" ? "cancelled" : "cancelled_by_customer"), { cancelled_at: new Date() });
     }
   }),
   "tracking.notify": withStore((store, d) => notifyTracking(store, d.fulfillmentId, d.event)),
@@ -371,6 +447,23 @@ export const handlers = {
     if (store.shopifyToken) await syncProducts(store);
   }),
   "templates.install": withStore((store) => installDefaultTemplates(store, { submit: true })),
+  "order.event": withStore((store, d) => handleOrderEvent(store, d)),
+  "rule.continue": withStore(async (store, d) => {
+    const rule = await one(`SELECT * FROM automation_rules WHERE id=$1 AND store_id=$2 AND active`, [d.ruleId, store.id]);
+    if (rule) await runSteps(store, rule, d.orderId, d.step);
+  }),
+  "shipment.book": withStore((store, d) => bookShipment(store, d.orderId, { courierId: d.courierId })),
+  "shipment.sync": withStore((store, d) => syncShipment(store, d.shipmentId)),
+  "shipment.notify": withStore((store, d) => notifyShipment(store, d.shipmentId, d.event)),
+  "shipment.fulfill": withStore((store, d) => fulfillInShopify(store, d.shipmentId, fulfillOrder)),
+  "advance.request": withStore(async (store, d) => {
+    const order = await getOrder(d.orderId);
+    if (order && order.advance_status === "none") await requestAdvance(store, order, { amount: d.amount });
+  }),
+  "cron.shipments": () => queueShipmentSync(),
+  "review.ask": withStore((store, d) => sendReviewAsk(store, d.orderId)),
+  "stock.restocked": withStore((store, d) => onRestock(store, d)),
+  "upsell.offer": withStore((store, d) => sendUpsellOffer(store, d.orderId)),
   "webhooks.emit": (d) => emitEvent(d),
   "webhooks.deliver": (d) => deliverWebhook(d),
   "cron.reconcile": reconcileAll,
@@ -388,4 +481,5 @@ export const cronEntries = [
   { name: "templates", job: "cron.templates", everyMinutes: 30 },
   { name: "hourly", job: "cron.hourly", atMinute: 7 },
   { name: "daily", job: "cron.daily", everyMinutes: 1440 },
+  { name: "shipments", job: "cron.shipments", everyMinutes: 120 },
 ];

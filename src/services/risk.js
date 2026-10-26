@@ -2,6 +2,7 @@ import { one } from "../db/pool.js";
 import { aiAvailable } from "../ai/provider.js";
 import { riskReview } from "../ai/features.js";
 import { logger } from "../logger.js";
+import { networkRiskPoints } from "./fraud.js";
 
 /**
  * Fake/risky COD order score 0-100 from rules (+ optional AI review).
@@ -35,6 +36,11 @@ export async function scoreOrderRisk(store, order, items) {
       reasons.push(`${history.good} earlier delivered orders (trusted)`);
     }
   }
+
+  const net = await networkRiskPoints(store, order);
+  if (net.blocked) return { score: 100, reasons: net.reasons, blocked: net.blocked };
+  score += net.score;
+  reasons.push(...net.reasons);
 
   const avg = await one(
     `SELECT avg(total) AS aov FROM orders WHERE store_id=$1 AND shopify_created_at > now() - interval '90 days' AND id <> $2`,

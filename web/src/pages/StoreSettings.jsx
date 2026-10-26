@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useApi, post, patch, put, del } from "../lib/api.js";
 import { useSession } from "../lib/session.jsx";
 import { useStoreSettings } from "../lib/useStoreSettings.js";
@@ -7,6 +7,7 @@ import { dateTime } from "../lib/format.js";
 import { Send, Smartphone, Unlink } from "lucide-react";
 import { Card, Badge, Button, Empty, Field, Input, Select, Textarea, Toggle, Tabs, Table, Loading, ErrorBox, useAction } from "../components/ui.jsx";
 import WhatsAppConnect, { ProviderBadge, unlinkQr } from "../components/WhatsAppConnect.jsx";
+import { CouriersTab, SalesTab } from "../components/StoreBusinessTabs.jsx";
 
 function CopyField({ label, value }) {
   return (
@@ -174,7 +175,9 @@ export default function StoreSettings() {
   const navigate = useNavigate();
   const { can, refresh } = useSession();
   const s = useStoreSettings(id);
-  const [tab, setTab] = useState("general");
+  const [params, setParams] = useSearchParams();
+  const tab = params.get("tab") || "general";
+  const setTab = (t) => setParams({ tab: t }, { replace: true });
   const [run, busy] = useAction();
   const [general, setGeneral] = useState(null);
   if (s.error) return <ErrorBox error={s.error} />;
@@ -203,6 +206,8 @@ export default function StoreSettings() {
         tabs={[
           { value: "general", label: "General" },
           { value: "whatsapp", label: "WhatsApp" },
+          { value: "couriers", label: "Couriers" },
+          { value: "sales", label: "Sales & delivery" },
           { value: "ai", label: "AI & keys" },
           { value: "tags", label: "Shopify tags" },
           { value: "bundles", label: "Bundles" },
@@ -266,6 +271,8 @@ export default function StoreSettings() {
       )}
 
       {tab === "whatsapp" && <WhatsAppTab data={data} reload={s.reload} />}
+      {tab === "couriers" && <CouriersTab storeId={id} s={s} canEdit={can("admin")} />}
+      {tab === "sales" && <SalesTab storeId={id} s={s} canEdit={can("admin")} />}
       {tab === "ai" && <AiTab id={id} data={data} s={s} reload={s.reload} />}
 
       {tab === "tags" && (

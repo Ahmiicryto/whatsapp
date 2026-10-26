@@ -5,6 +5,7 @@ import { orderContext } from "./context.js";
 import { sendTemplate } from "./messaging.js";
 import { createShortLink } from "./links.js";
 import { assertNotQuietHours } from "./confirmation.js";
+import { scheduleReviewAsk } from "./reviews.js";
 
 /** fulfillments/create|update webhook -> upsert fulfillment, queue the right notification. */
 export async function ingestFulfillment(store, p) {
@@ -23,6 +24,8 @@ export async function ingestFulfillment(store, p) {
     [store.id, order.id, p.id, p.status, trackingNumber, p.tracking_company, trackingUrl, p.shipment_status]
   );
   if (p.status === "cancelled") return f;
+  // Booked through our courier integration: the shipment drives the WhatsApp updates, not Shopify.
+  if (trackingNumber && (await one(`SELECT 1 FROM shipments WHERE order_id=$1 AND tracking_number=$2`, [order.id, trackingNumber]))) return f;
 
   if (!["fulfilled", "delivered"].includes(order.status) && !["cancelled", "cancelled_by_customer"].includes(order.status)) {
     await setOrderStatus(order.id, "fulfilled");
@@ -76,6 +79,7 @@ export async function notifyTracking(store, fulfillmentId, event) {
 }
 
 async function scheduleReview(store, order) {
+  await scheduleReviewAsk(store, order);
   const r = store.settings.tracking.reviewRequest;
   if (!r.enabled || !r.url) return;
   await enqueue("review.request", { storeId: store.id, orderId: order.id }, {

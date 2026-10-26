@@ -43,6 +43,30 @@ export const STATUS_LABEL = {
   cancelled: "Cancelled",
   fulfilled: "Shipped",
   delivered: "Delivered",
+  returned: "Returned",
+};
+
+export const SHIP_LABEL = {
+  booked: "Booked",
+  in_transit: "In transit",
+  out_for_delivery: "Out for delivery",
+  delivered: "Delivered",
+  attempted: "Delivery failed",
+  refused: "Refused",
+  returning: "Returning",
+  returned: "Returned",
+  cancelled: "Cancelled",
+};
+export const SHIP_TONE = {
+  booked: "gray",
+  in_transit: "blue",
+  out_for_delivery: "purple",
+  delivered: "green",
+  attempted: "amber",
+  refused: "red",
+  returning: "orange",
+  returned: "red",
+  cancelled: "gray",
 };
 
 export const STATUS_TONE = {
@@ -56,6 +80,7 @@ export const STATUS_TONE = {
   cancelled: "red",
   fulfilled: "blue",
   delivered: "green",
+  returned: "red",
 };
 
 export const ADDRESS_LABEL = {

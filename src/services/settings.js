@@ -32,6 +32,13 @@ export const DEFAULT_SETTINGS = {
     addressUpdated: "address-updated",
     addressIssue: "address-issue",
     riskHigh: "risk-high",
+    booked: "courier-booked",
+    returned: "courier-returned",
+    reschedule: "wa-reschedule",
+    advancePaid: "advance-paid",
+    advanceRequested: "advance-requested",
+    blocked: "blocked-number",
+    upsell: "wa-upsell",
   },
   address: {
     enabled: true,
@@ -79,6 +86,30 @@ export const DEFAULT_SETTINGS = {
   reports: { daily: true, time: "21:00", weekly: false, monthly: false, aiSummary: true },
   alerts: { highValueOrder: 0, highRisk: true, failedSpike: 10, qualityDrop: true, lowConfirmationRate: 0 },
   pricing: { currency: "USD", marketing: 0.05, utility: 0.01, authentication: 0.01, service: 0 },
+  couriers: {
+    autoBook: false, // book the default courier as soon as an order is confirmed
+    skipRisky: true, // ...except high-risk orders, which wait for a person
+    defaultWeightKg: 0.5,
+    fulfillInShopify: true, // mark the order fulfilled in Shopify with the tracking number
+    notifyOnBooking: true, // send the "shipped" WhatsApp message with tracking
+  },
+  recovery: { enabled: true, maxMessages: 2 }, // failed delivery -> ask the customer to reschedule / fix address
+  fraud: { networkCheck: true, blockAction: "flag", autoBlockAfterReturns: 2 }, // blockAction: flag | cancel | advance
+  advance: {
+    enabled: false,
+    mode: "risky", // risky | all_cod | over_amount
+    riskThreshold: 60,
+    minTotal: 0,
+    type: "fixed", // fixed | percent | full
+    amount: 300,
+    percent: 20,
+    instructions: "Send it by JazzCash / Easypaisa to 0300-0000000 (account title: Your Store) and reply here with a screenshot.",
+    cardLink: false, // add a Stripe card payment link (needs STRIPE_SECRET_KEY)
+  },
+  profit: { shippingCost: 250, returnCost: 150, codFeePercent: 4, packagingCost: 30, otherPercent: 0 },
+  upsell: { enabled: false, variantId: null, productId: null, title: "", imageUrl: "", price: null, text: "Add {{product}} to your order for just {{price}}? 🎁" },
+  reviews: { enabled: false, delayDays: 3, askPhoto: true, autoPublishMin: 4 },
+  backInStock: { enabled: true },
   bundles: { enabled: false, removeBundleLine: false, rules: [] }, // rules: [{bundleSku, components:[{sku, quantity}]}]
 };
 

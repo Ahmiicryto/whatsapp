@@ -122,7 +122,7 @@ export async function assertStore(req, storeId, min = "viewer") {
 
 /** Ensures the row (with store_id) belongs to an accessible store; returns it. */
 export async function assertRow(req, table, id, min = "viewer") {
-  const allowed = ["orders", "customers", "conversations", "campaigns", "segments", "templates", "messages"];
+  const allowed = ["orders", "customers", "conversations", "campaigns", "segments", "templates", "messages", "shipments", "reviews", "products", "automation_rules", "store_couriers", "ad_spend"];
   if (!allowed.includes(table)) throw new Error("bad table");
   const row = await one(`SELECT * FROM ${table} WHERE id=$1`, [Number(id)]);
   if (!row) throw notFound();

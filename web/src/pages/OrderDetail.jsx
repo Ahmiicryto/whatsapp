@@ -4,6 +4,7 @@ import { useApi, post } from "../lib/api.js";
 import { useSession } from "../lib/session.jsx";
 import { money, dateTime, STATUS_LABEL, STATUS_TONE, ADDRESS_LABEL, ADDRESS_TONE } from "../lib/format.js";
 import { Card, Badge, Button, Loading, ErrorBox, Modal, Field, Input, useAction } from "../components/ui.jsx";
+import { ShipmentCard, AdvanceCard, ReputationBadge } from "../components/ShipmentPanel.jsx";
 
 const MSG_TONE = { read: "blue", delivered: "green", sent: "gray", failed: "red", received: "purple", queued: "gray" };
 
@@ -80,7 +81,18 @@ export default function OrderDetail() {
                 Mark cancelled
               </Button>
             )}
-            {fulfillments.length > 0 && (
+            {o.ad_source && (
+            <Card title="Came from an ad">
+              <div className="text-sm">{o.ad_source.headline || "Click-to-WhatsApp ad"}</div>
+              {o.ad_source.source_url && (
+                <a href={o.ad_source.source_url} target="_blank" rel="noreferrer" className="text-xs text-brand-700 hover:underline">
+                  View ad ↗
+                </a>
+              )}
+            </Card>
+          )}
+
+          {fulfillments.length > 0 && !(data.shipments || []).length && (
               <Button variant="secondary" onClick={() => act("send_tracking", {}, "Tracking queued")}>
                 Send tracking
               </Button>
@@ -142,6 +154,8 @@ export default function OrderDetail() {
         </div>
 
         <div className="space-y-4">
+          <ShipmentCard order={o} storeId={o.store_id} shipments={data.shipments || []} onChange={reload} canAct={can("agent")} />
+          <AdvanceCard order={o} onChange={reload} canAct={can("agent")} />
           <Card title="Customer">
             <div className="space-y-1 text-sm">
               <div className="font-medium">{o.customer_name || "—"}</div>
@@ -209,6 +223,9 @@ export default function OrderDetail() {
                 </ul>
               </>
             )}
+            <div className="mt-3">
+              <ReputationBadge rep={data.reputation} />
+            </div>
           </Card>
 
           <Card title="Shopify tags">
@@ -217,7 +234,18 @@ export default function OrderDetail() {
             </div>
           </Card>
 
-          {fulfillments.length > 0 && (
+          {o.ad_source && (
+            <Card title="Came from an ad">
+              <div className="text-sm">{o.ad_source.headline || "Click-to-WhatsApp ad"}</div>
+              {o.ad_source.source_url && (
+                <a href={o.ad_source.source_url} target="_blank" rel="noreferrer" className="text-xs text-brand-700 hover:underline">
+                  View ad ↗
+                </a>
+              )}
+            </Card>
+          )}
+
+          {fulfillments.length > 0 && !(data.shipments || []).length && (
             <Card title="Shipping">
               {fulfillments.map((f) => (
                 <div key={f.id} className="text-sm">

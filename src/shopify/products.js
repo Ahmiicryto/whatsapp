@@ -83,3 +83,24 @@ export async function fetchAllProducts(store, maxPages = 40) {
   }
   return out;
 }
+
+/** Unit cost per variant (Shopify "Cost per item"). Needs read_inventory; returns {} when not allowed. */
+export async function fetchVariantCosts(store, maxPages = 20) {
+  const out = {};
+  let after = null;
+  for (let page = 0; page < maxPages; page++) {
+    const data = await shopifyGraphql(
+      store,
+      `query($after: String) { productVariants(first: 250, after: $after) { pageInfo { hasNextPage endCursor }
+         nodes { legacyResourceId inventoryItem { unitCost { amount } } } } }`,
+      { after }
+    );
+    for (const v of data.productVariants.nodes) {
+      const amount = v.inventoryItem?.unitCost?.amount;
+      if (amount !== undefined && amount !== null) out[Number(v.legacyResourceId)] = Number(amount);
+    }
+    if (!data.productVariants.pageInfo.hasNextPage) break;
+    after = data.productVariants.pageInfo.endCursor;
+  }
+  return out;
+}

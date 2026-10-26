@@ -137,6 +137,16 @@ async function deliver(store, { to, payload, record, gateway }) {
   }
 }
 
+/** Template language for a customer: their detected language (Urdu script -> "ur"), else the store default. */
+async function customerLanguage(store, phone, customerId) {
+  const c = customerId
+    ? await one(`SELECT language FROM customers WHERE id=$1`, [customerId])
+    : await one(`SELECT language FROM customers WHERE store_id=$1 AND phone_e164=$2 AND language IS NOT NULL LIMIT 1`, [store.id, phone]);
+  const lang = String(c?.language || "");
+  if (!lang || lang === "ur-Latn") return store.settings.language;
+  return lang.split("-")[0] || store.settings.language;
+}
+
 /**
  * Sends the store's approved template for `kind` (or an explicit template row).
  * Marketing templates are only sent to opted-in customers when the store requires opt-in.
@@ -144,7 +154,7 @@ async function deliver(store, { to, payload, record, gateway }) {
 export async function sendTemplate(store, { kind, template, to, ctx, orderId, customerId, campaignId, messageKind, name, skipOptInCheck = false }) {
   requireWa(store);
   if (!to) throw new PermanentError("No phone number");
-  const tpl = template || (await findTemplate(store.id, kind, store.settings.language, { anyStatus: isGateway(store) }));
+  const tpl = template || (await findTemplate(store.id, kind, await customerLanguage(store, to, customerId), { anyStatus: isGateway(store) }));
   if (!tpl) throw new PermanentError(`No approved "${kind}" template for this store. Install templates under Templates.`);
   const category = String(tpl.category || "UTILITY").toLowerCase();
   if (category === "marketing" && !skipOptInCheck) await assertMarketingAllowed(store, to, customerId);

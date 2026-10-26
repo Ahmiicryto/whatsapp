@@ -183,6 +183,12 @@ async function start(id) {
         }
       } else if (msg.imageMessage) {
         ev.kind = "image";
+        try {
+          const buf = await downloadMediaMessage(m, "buffer", {});
+          if (buf.length < 4 * 1024 * 1024) ev.media = { base64: buf.toString("base64"), mime: msg.imageMessage.mimetype };
+        } catch (err) {
+          log.warn({ err: err.message }, "image download failed");
+        }
       }
       events.push(ev);
     }

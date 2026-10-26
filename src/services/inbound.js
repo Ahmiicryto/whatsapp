@@ -12,6 +12,10 @@ import { getOrder, queueTags, setOrderStatus } from "./orders.js";
 import * as flow from "./confirmation.js";
 import { raiseAlert } from "./alerts.js";
 import { notify } from "./notifications.js";
+import { customerRecoveryChoice } from "./shipments.js";
+import { receiveRating, receiveReviewContent } from "./reviews.js";
+import { acceptUpsell, declineUpsell } from "./upsell.js";
+import { emitEvent } from "./webhooksOut.js";
 
 /** Hand the chat to a person: flag it and ping the team once (not on every message). */
 async function flagHuman(store, conversation, reason = "needs a reply") {
@@ -100,6 +104,10 @@ export async function handleMessageEvent(ev) {
 
   const msg = await recordInbound(store, conversation, ev, { body: recordBody });
   if (!msg) return; // duplicate webhook
+  await emitEvent({ accountId: store.accountId, event: "message.received", data: { conversation_id: conversation.id, phone, name: ev.profileName || null, text: recordBody || text, kind: ev.kind, at: new Date().toISOString() } });
+  if (ev.referral) {
+    await query(`UPDATE conversations SET state = state || $2 WHERE id=$1`, [conversation.id, { referral: { ...ev.referral, at: new Date().toISOString() } }]);
+  }
   if (store.wa.provider !== "gateway") wa.markRead(store.wa, ev.wamid);
   conversation = await one(`SELECT * FROM conversations WHERE id=$1`, [conversation.id]);
 
@@ -110,6 +118,19 @@ export async function handleMessageEvent(ev) {
   }
 
   if (ev.payload) return handlePayload(store, conversation, ev.payload, customer, text);
+
+  // Photo/words after a rating -> part of the review
+  if (await receiveReviewContent(store, conversation, ev, text)) return;
+
+  // A picture while an advance payment is pending is almost always the payment screenshot
+  if (ev.media && (ev.kind === "image" || /^image\//.test(ev.media.mime || ""))) {
+    const waiting = await one(`SELECT * FROM orders WHERE store_id=$1 AND phone_e164=$2 AND advance_status='requested' ORDER BY id DESC LIMIT 1`, [store.id, phone]);
+    if (waiting) {
+      await notify({ accountId: store.accountId, storeId: store.id, kind: "advance.screenshot", severity: "info", title: `Payment screenshot for ${waiting.name}`, body: "Check it and click Mark advance paid on the order.", link: `/orders/${waiting.id}` });
+      await flagHuman(store, conversation, "sent a payment screenshot");
+      return sendText(store, { to: phone, conversation, orderId: waiting.id, kind: "advance_ack", body: "Thank you! We'll check your payment and confirm shortly 🙏" });
+    }
+  }
 
   const state = conversation.state || {};
   if (state.mode === "awaiting_address" && (ev.location || text)) {
@@ -143,6 +164,9 @@ export async function handleMessageEvent(ev) {
     } catch (err) {
       logger.warn({ err: err.message }, "AI intent failed, using keywords");
     }
+  }
+  if (intent.language && intent.language !== "unknown" && (conversation.customer_id || customer?.id)) {
+    await query(`UPDATE customers SET language=$2 WHERE id=$1 AND language IS DISTINCT FROM $2`, [conversation.customer_id || customer.id, String(intent.language).slice(0, 12)]);
   }
   const confident = intent.confidence >= Number(store.settings.ai.minConfidence || 0.6);
   const kind = confident ? intent.intent : "other";
@@ -200,6 +224,33 @@ async function handlePayload(store, conversation, payload, customer, text) {
       break;
     case "ADDR_NEW_OK":
       if (order) return flow.confirmPendingAddress(store, order, conversation);
+      break;
+    case "RESCHEDULE":
+      if (order) {
+        await customerRecoveryChoice(store, order, "redeliver");
+        return sendText(store, { to: conversation.phone_e164, conversation, orderId: order.id, kind: "recovery_reply", body: `Thank you! We've asked the courier to deliver order ${order.name} again. Please keep your phone switched on 📞` });
+      }
+      break;
+    case "RTO_CANCEL":
+      if (order) {
+        await customerRecoveryChoice(store, order, "cancel");
+        await setOrderStatus(order.id, order.status, { needs_attention: true });
+        return sendText(store, { to: conversation.phone_e164, conversation, orderId: order.id, kind: "recovery_reply", body: `Okay, we'll cancel order ${order.name}. Sorry it didn't work out this time.` });
+      }
+      break;
+    case "REVIEW_5":
+    case "REVIEW_4":
+    case "REVIEW_2":
+      if (order) return receiveRating(store, order, conversation, Number(action.split("_")[1]), flagHuman);
+      break;
+    case "UPSELL_YES":
+      if (order) return acceptUpsell(store, order, conversation);
+      break;
+    case "UPSELL_NO":
+      if (order) {
+        await declineUpsell(store, order);
+        return sendText(store, { to: conversation.phone_e164, conversation, orderId: order.id, kind: "upsell_reply", body: "No problem! Your order will be on its way soon 🚚" });
+      }
       break;
     case "OPTIN_YES":
       await flow.setOptIn(Number(ref) || customer?.id, true, "whatsapp_button");

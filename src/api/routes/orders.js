@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { phoneReputation } from "../../services/fraud.js";
 import { z } from "zod";
 import { one, many, query } from "../../db/pool.js";
 import { ah, badRequest } from "../../lib/errors.js";
@@ -99,7 +100,11 @@ r.get(
     ]);
     const store = await one(`SELECT name, shopify_domain FROM stores WHERE id=$1`, [order.store_id]);
     const conversation = order.phone_e164 ? await one(`SELECT id, last_inbound_at FROM conversations WHERE store_id=$1 AND phone_e164=$2`, [order.store_id, order.phone_e164]) : null;
+    const shipments = await many(`SELECT * FROM shipments WHERE order_id=$1 ORDER BY id DESC`, [order.id]);
+    const reputation = order.phone_e164 ? await phoneReputation(order.phone_e164, { excludeOrderId: order.id, accountId: req.accountId }) : null;
     res.json({
+      shipments,
+      reputation,
       order,
       items,
       messages,
