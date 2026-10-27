@@ -121,6 +121,7 @@ Don't use free instances. They sleep, so webhooks arrive late and reminders and 
      - **App URL:** `https://YOUR-DOMAIN/shopify/install`
      - **Redirect URL:** `https://YOUR-DOMAIN/shopify/callback`
      - **Scopes:** `read_orders,write_orders,read_customers,write_customers,read_products,read_fulfillments,read_checkouts,write_discounts,read_locations,write_order_edits`
+     - **Optional extra scopes:** `read_inventory` (product costs for the Profit page) and `write_merchant_managed_fulfillment_orders` (mark orders fulfilled in Shopify when a courier is booked). Add them to the app's scopes **first**, release a new version, then set `SHOPIFY_SCOPES` to the full list. If the app requests a scope it doesn't have, Shopify refuses the install.
      - **Embed app in Shopify admin:** off is simplest (on also works).
      - Request **protected customer data** access for name, email, phone and address.
    - Put the app's **Client ID** in `SHOPIFY_API_KEY` and its **Client secret** in `SHOPIFY_API_SECRET`, then redeploy.

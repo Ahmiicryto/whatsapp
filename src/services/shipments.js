@@ -258,7 +258,14 @@ export async function fulfillInShopify(store, shipmentId, fulfillOrder) {
   const sh = await one(`SELECT * FROM shipments WHERE id=$1`, [shipmentId]);
   const order = sh && (await getOrder(sh.order_id));
   if (!sh?.tracking_number || !order) return;
-  await fulfillOrder(store, order.shopify_order_id, { company: sh.courier_name, number: sh.tracking_number, url: sh.tracking_url });
+  // Needs a fulfillment write permission, which stores only have if it was added to SHOPIFY_SCOPES (optional).
+  const row = await one(`SELECT shopify_scopes FROM stores WHERE id=$1`, [store.id]);
+  if (row?.shopify_scopes && !/write_(merchant_managed|third_party|assigned)_fulfillment_orders|write_fulfillments/.test(row.shopify_scopes)) return;
+  try {
+    await fulfillOrder(store, order.shopify_order_id, { company: sh.courier_name, number: sh.tracking_number, url: sh.tracking_url });
+  } catch (err) {
+    logger.warn({ err: err.message, shipment: sh.id }, "could not mark the order fulfilled in Shopify (missing permission?)");
+  }
 }
 
 /** Mark delivered parcels' cash as received from the courier. */

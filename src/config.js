@@ -40,7 +40,7 @@ const schema = z.object({
   SHOPIFY_SCOPES: z
     .string()
     .default(
-      "read_orders,write_orders,read_customers,write_customers,read_products,read_inventory,read_fulfillments,write_merchant_managed_fulfillment_orders,write_third_party_fulfillment_orders,read_checkouts,write_discounts,read_locations,write_order_edits"
+      "read_orders,write_orders,read_customers,write_customers,read_products,read_fulfillments,read_checkouts,write_discounts,read_locations,write_order_edits"
     ),
   SHOPIFY_API_VERSION: z.string().default("2025-10"),
 
