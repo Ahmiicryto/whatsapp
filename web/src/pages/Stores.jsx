@@ -6,9 +6,9 @@ import { useSession } from "../lib/session.jsx";
 import { ago } from "../lib/format.js";
 import { Card, Badge, Button, PageHeader, Modal, Field, Input, Tabs, Empty, ErrorBox, useAction } from "../components/ui.jsx";
 
-function ConnectModal({ onClose, onDone, oauth }) {
+function ConnectModal({ onClose, onDone, oauth, appUrl, redirectUrl }) {
   const [tab, setTab] = useState(oauth ? "oauth" : "manual");
-  const [f, setF] = useState({ shopDomain: "", accessToken: "", webhookSecret: "" });
+  const [f, setF] = useState({ shopDomain: "", accessToken: "", webhookSecret: "", clientId: "", clientSecret: "" });
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
 
@@ -23,6 +23,11 @@ function ConnectModal({ onClose, onDone, oauth }) {
         window.location.href = `/shopify/install?shop=${encodeURIComponent(shop)}`;
         return;
       }
+      if (tab === "ownapp") {
+        const r = await post("/stores/shopify-app", { shopDomain: f.shopDomain, clientId: f.clientId, clientSecret: f.clientSecret });
+        window.location.href = r.installUrl;
+        return;
+      }
       const store = await post("/stores", f);
       onDone(store);
     } catch (e) {
@@ -33,9 +38,30 @@ function ConnectModal({ onClose, onDone, oauth }) {
   }
 
   return (
-    <Modal open onClose={onClose} title="Connect a Shopify store" footer={<Button loading={busy} onClick={submit}>{tab === "oauth" ? "Continue to Shopify" : "Connect"}</Button>}>
-      <Tabs value={tab} onChange={setTab} tabs={[...(oauth ? [{ value: "oauth", label: "Install app (recommended)" }] : []), { value: "manual", label: "Custom app token" }]} />
-      {!oauth && (
+    <Modal open onClose={onClose} title="Connect a Shopify store" footer={<Button loading={busy} onClick={submit}>{tab === "manual" ? "Connect" : "Continue to Shopify"}</Button>}>
+      <Tabs value={tab} onChange={setTab} tabs={[...(oauth ? [{ value: "oauth", label: "Install app" }] : []), { value: "ownapp", label: "Store's own app" }, { value: "manual", label: "Custom app token" }]} />
+      {tab === "oauth" && (
+        <p className="mt-3 rounded-lg bg-sky-50 p-3 text-xs text-sky-900 dark:bg-sky-900/30 dark:text-sky-200">
+          Shopify shows <b>"This installation link can't be used"</b> if your app has <b>custom distribution</b> for a different store. A custom-distribution app installs on only one store, so for every other store use <b>Store's own app</b>.
+        </p>
+      )}
+      {tab === "ownapp" && (
+        <ol className="mt-3 list-decimal space-y-1 rounded-lg bg-gray-50 p-3 pl-7 text-xs text-gray-700 dark:bg-gray-800/50 dark:text-gray-300">
+          <li>
+            In the Shopify Dev Dashboard (dev.shopify.com), click <b>Create app</b> (one app per store).
+          </li>
+          <li>
+            Versions → App URL <b>{appUrl}</b>, Redirect URL <b>{redirectUrl}</b>, the same scopes as your main app → <b>Release</b>.
+          </li>
+          <li>
+            Distribution → <b>Custom distribution</b> → enter this store's domain.
+          </li>
+          <li>
+            Settings → copy the <b>Client ID</b> and <b>Client secret</b> into the boxes below, then click Continue and approve in Shopify.
+          </li>
+        </ol>
+      )}
+      {!oauth && tab === "manual" && (
         <div className="mt-3 rounded-lg bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
           The <b>Install app</b> option appears after you add <b>SHOPIFY_API_KEY</b> (Client ID) and <b>SHOPIFY_API_SECRET</b> (Client secret)
           from the Shopify Dev Dashboard to your hosting environment variables and redeploy. This tab only accepts an older custom-app token starting with <b>shpat_</b>.
@@ -45,6 +71,16 @@ function ConnectModal({ onClose, onDone, oauth }) {
         <Field label="Store domain" hint="e.g. glowcandles.myshopify.com">
           <Input value={f.shopDomain} onChange={(e) => setF({ ...f, shopDomain: e.target.value })} placeholder="yourstore.myshopify.com" />
         </Field>
+        {tab === "ownapp" && (
+          <>
+            <Field label="Client ID">
+              <Input value={f.clientId} onChange={(e) => setF({ ...f, clientId: e.target.value })} autoComplete="off" />
+            </Field>
+            <Field label="Client secret">
+              <Input value={f.clientSecret} onChange={(e) => setF({ ...f, clientSecret: e.target.value })} type="password" autoComplete="off" />
+            </Field>
+          </>
+        )}
         {tab === "manual" && (
           <>
             <Field label="Admin API access token" hint="From your custom app (starts with shpat_). Needs order, customer, product, fulfillment, checkout and discount scopes.">
@@ -157,6 +193,8 @@ export default function Stores() {
       {connecting && (
         <ConnectModal
           oauth={me?.features?.shopifyOAuth}
+          appUrl={me?.features?.shopifyAppUrl}
+          redirectUrl={me?.features?.shopifyRedirectUrl}
           onClose={() => setConnecting(false)}
           onDone={async (s) => {
             setConnecting(false);

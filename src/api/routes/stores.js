@@ -4,7 +4,7 @@ import { z } from "zod";
 import { one, many, query } from "../../db/pool.js";
 import { ah, badRequest, forbidden, notFound } from "../../lib/errors.js";
 import { encrypt, decrypt, randomToken } from "../../lib/crypto.js";
-import { linkShopifyStore } from "../../services/storeLink.js";
+import { linkShopifyStore, shopifyAppFor } from "../../services/storeLink.js";
 import { config } from "../../config.js";
 import { requireRole, assertStore, accessibleStoreIds } from "../auth.js";
 import { enqueue } from "../../queue/queue.js";
@@ -100,6 +100,36 @@ r.get(
   })
 );
 
+// ---------- a store's own Shopify app (Client ID + secret) ----------
+
+/**
+ * Saves the Client ID / secret of a Shopify app made for one store and returns the install URL.
+ * Apps with custom distribution only install on the store they were made for, so every extra
+ * store needs its own app (same App URL and Redirect URL).
+ */
+r.post(
+  "/stores/shopify-app",
+  requireRole("admin"),
+  ah(async (req, res) => {
+    const b = z.object({ shopDomain: z.string().min(3), clientId: z.string().min(10).max(100), clientSecret: z.string().min(10).max(200) }).parse(req.body);
+    const shop = normalizeShopDomain(b.shopDomain);
+    if (!isValidShopDomain(shop)) throw badRequest("Use the store's xxx.myshopify.com domain");
+    if (/^shp(at|ca|ua)_/.test(b.clientId.trim())) throw badRequest("That's an access token, not a Client ID. Use the Custom app token tab for shpat_ tokens.");
+    const taken = await one(`SELECT account_id FROM stores WHERE lower(shopify_domain)=$1`, [shop]);
+    if (taken && taken.account_id !== req.accountId) throw forbidden("This store is already connected to another account.");
+    const existing = await one(`SELECT account_id FROM shopify_apps WHERE shop=$1`, [shop]);
+    if (existing?.account_id && existing.account_id !== req.accountId) throw forbidden("This store's app belongs to another account.");
+    if (!taken) await assertWithinPlan(req.accountId, "stores", { http: true });
+    await query(
+      `INSERT INTO shopify_apps (account_id, shop, client_id, client_secret_enc) VALUES ($1,$2,$3,$4)
+       ON CONFLICT (shop) DO UPDATE SET account_id=EXCLUDED.account_id, client_id=EXCLUDED.client_id, client_secret_enc=EXCLUDED.client_secret_enc, updated_at=now()`,
+      [req.accountId, shop, b.clientId.trim(), encrypt(b.clientSecret.trim())]
+    );
+    await audit({ user: req.user, accountId: req.accountId, action: "store.shopify_app", target: shop });
+    res.json({ installUrl: `/shopify/install?shop=${encodeURIComponent(shop)}` });
+  })
+);
+
 // ---------- claim a store installed from Shopify ----------
 
 r.get(
@@ -118,7 +148,8 @@ r.post(
     const { token } = z.object({ token: z.string().min(10) }).parse(req.body);
     const p = await one(`SELECT * FROM pending_installs WHERE token=$1 AND created_at > now() - interval '7 days'`, [token]);
     if (!p) throw notFound("This install link has expired. Install the app from Shopify again.");
-    const storeId = await linkShopifyStore({ accountId: req.accountId, shop: p.shop, accessToken: decrypt(p.access_token_enc), scope: p.scope });
+    const app = p.app_id ? await shopifyAppFor({ id: p.app_id }) : null;
+    const storeId = await linkShopifyStore({ accountId: req.accountId, shop: p.shop, accessToken: decrypt(p.access_token_enc), scope: p.scope, app });
     await query(`DELETE FROM pending_installs WHERE token=$1`, [token]);
     await audit({ user: req.user, accountId: req.accountId, storeId, action: "store.claim", target: p.shop });
     res.json({ storeId });

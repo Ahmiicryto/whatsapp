@@ -89,3 +89,27 @@ test("forged Shopify requests are rejected", async () => {
   const cb = await rawGet(`/shopify/callback?shop=bstore.myshopify.com&code=x&state=y&hmac=bad`);
   assert.equal(cb.status, 400);
 });
+
+test("a second store can use its own Shopify app (custom distribution is one store per app)", async () => {
+  const owner = client();
+  await owner.post("/api/auth/signup", { name: "C", email: "c@example.com", password: "password123", accountName: "C Co" });
+  const saved = await owner.post("/api/stores/shopify-app", { shopDomain: "cstore", clientId: "own-client-id-123", clientSecret: "own-client-secret-456" });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  const r = await rawGet(saved.body.installUrl, { Cookie: owner.cookie() });
+  const u = new URL(r.headers.get("location"));
+  assert.equal(u.searchParams.get("client_id"), "own-client-id-123", "uses the store's own app");
+  const state = u.searchParams.get("state");
+  const ownSigned = (params) => {
+    const msg = Object.keys(params).sort().map((k) => `${k}=${params[k]}`).join("&");
+    return new URLSearchParams({ ...params, hmac: crypto.createHmac("sha256", "own-client-secret-456").update(msg).digest("hex") }).toString();
+  };
+  const bad = await rawGet(`/shopify/callback?${signed({ code: "abc", shop: "cstore.myshopify.com", state, timestamp: "1700000010" })}`);
+  assert.equal(bad.status, 400, "platform secret doesn't sign for the store's own app");
+  const cb = await rawGet(`/shopify/callback?${ownSigned({ code: "abc", shop: "cstore.myshopify.com", state, timestamp: "1700000011" })}`, { Cookie: owner.cookie() });
+  assert.equal(cb.status, 302, cb.text);
+  assert.match(cb.headers.get("location"), /^\/stores\/\d+\?connected=1$/);
+  const [store] = await q(`SELECT webhook_secret_enc IS NOT NULL AS own_secret FROM stores WHERE shopify_domain='cstore.myshopify.com'`);
+  assert.equal(store.own_secret, true, "webhooks are verified with the store app's secret");
+  const opened = await rawGet(`/shopify/install?${ownSigned({ shop: "cstore.myshopify.com", timestamp: "1700000012" })}`);
+  assert.equal(opened.status, 302, "opening the store's own app from Shopify admin works");
+});

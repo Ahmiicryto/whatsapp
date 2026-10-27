@@ -131,6 +131,7 @@ Don't use free instances. They sleep, so webhooks arrive late and reminders and 
      - Use **Stores → Connect store** in the portal.
 
      After the merchant approves in Shopify, the store links itself: to the signed-in account, to its previous account on a reinstall, or through a one-click "Link your store" page after signing in or signing up. Webhooks are registered and the last 30 days of orders imported automatically.
+   - **More than one store / "This installation link can't be used":** an app with *custom distribution* installs on only the one store it was made for. For every other store, create another app in the Dev Dashboard with the same App URL, Redirect URL and scopes, give it custom distribution to that store, then use **Stores → Connect store → Store's own app** and paste its Client ID and Client secret. (Public distribution through the Shopify App Store removes this limit, but needs Shopify's review.)
    - **Older stores:** if the store has a legacy custom app with an Admin token (`shpat_…`), use the **Custom app token** tab instead.
    - In Shopify checkout settings, make the phone number required.
 2. **Store → WhatsApp**: pick one of the three ways to connect (see [Connecting WhatsApp](#connecting-whatsapp)). For **Enter API details**: the Phone number ID, the WhatsApp Business Account ID and a permanent System User token from Meta Business Settings.

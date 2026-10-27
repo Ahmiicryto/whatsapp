@@ -14,9 +14,12 @@ export function normalizeShopDomain(input) {
   return shop;
 }
 
-export function buildInstallUrl(shop, state) {
+/** The platform app (env keys) unless a store-specific app { clientId, clientSecret } is given. */
+const keysOf = (app) => ({ clientId: app?.clientId || config.shopify.apiKey, clientSecret: app?.clientSecret || config.shopify.apiSecret });
+
+export function buildInstallUrl(shop, state, app = null) {
   const params = new URLSearchParams({
-    client_id: config.shopify.apiKey,
+    client_id: keysOf(app).clientId,
     scope: config.shopify.scopes,
     redirect_uri: `${config.baseUrl}/shopify/callback`,
     state,
@@ -25,20 +28,21 @@ export function buildInstallUrl(shop, state) {
 }
 
 /** Verifies the `hmac` query param Shopify adds to the OAuth callback. */
-export function verifyOAuthQuery(query) {
+export function verifyOAuthQuery(query, app = null) {
   const { hmac, signature, ...rest } = query;
   const message = Object.keys(rest)
     .sort()
     .map((k) => `${k}=${Array.isArray(rest[k]) ? rest[k].join(",") : rest[k]}`)
     .join("&");
-  const digest = crypto.createHmac("sha256", config.shopify.apiSecret || "").update(message).digest("hex");
+  const digest = crypto.createHmac("sha256", keysOf(app).clientSecret || "").update(message).digest("hex");
   return safeEqual(digest, String(hmac || ""));
 }
 
-export async function exchangeCodeForToken(shop, code) {
+export async function exchangeCodeForToken(shop, code, app = null) {
+  const k = keysOf(app);
   const res = await requestJson(`https://${shop}/admin/oauth/access_token`, {
     method: "POST",
-    body: { client_id: config.shopify.apiKey, client_secret: config.shopify.apiSecret, code },
+    body: { client_id: k.clientId, client_secret: k.clientSecret, code },
   });
   if (!res.ok || !res.json.access_token) {
     throw new Error(`Shopify token exchange failed (${res.status})`);

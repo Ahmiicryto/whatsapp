@@ -4,7 +4,7 @@ import { ah } from "../lib/errors.js";
 import { config } from "../config.js";
 import { logger } from "../logger.js";
 import { decrypt, encrypt, verifySignature, safeEqual, randomToken } from "../lib/crypto.js";
-import { linkShopifyStore } from "../services/storeLink.js";
+import { linkShopifyStore, shopifyAppFor } from "../services/storeLink.js";
 import { enqueue } from "../queue/queue.js";
 import { verifyShopifyHmac } from "../shopify/webhooks.js";
 import { verifyOAuthQuery, exchangeCodeForToken, isValidShopDomain, normalizeShopDomain, buildInstallUrl } from "../shopify/oauth.js";
@@ -238,11 +238,13 @@ r.get(
   ah(async (req, res) => {
     const shop = normalizeShopDomain(req.query.shop);
     if (!isValidShopDomain(shop)) return res.status(400).send("Missing or invalid shop. Use yourstore.myshopify.com");
-    if (!config.shopify.apiKey || !config.shopify.apiSecret) {
+    // A store with its own Shopify app (added under Stores → Connect store → Own Shopify app) uses those keys.
+    const app = await shopifyAppFor({ shop });
+    if (!app && (!config.shopify.apiKey || !config.shopify.apiSecret)) {
       return res.status(500).send("Shopify app keys are not configured (SHOPIFY_API_KEY / SHOPIFY_API_SECRET).");
     }
     const fromShopify = !!req.query.hmac;
-    if (fromShopify && !verifyOAuthQuery(req.query)) return res.status(400).send("Invalid Shopify signature");
+    if (fromShopify && !verifyOAuthQuery(req.query, app) && !(app && verifyOAuthQuery(req.query))) return res.status(400).send("Invalid Shopify signature");
 
     // Opened from Shopify admin for a store that is already linked: go straight to the portal.
     const existing = await one(`SELECT id FROM stores WHERE lower(shopify_domain)=$1 AND shopify_token_enc IS NOT NULL AND status='active'`, [shop]);
@@ -252,8 +254,8 @@ r.get(
     }
 
     const state = randomToken(24);
-    await query(`INSERT INTO oauth_states (state, user_id, account_id, shop) VALUES ($1,$2,$3,$4)`, [state, req.user?.id ?? null, linkableAccount(req), shop]);
-    const url = buildInstallUrl(shop, state);
+    await query(`INSERT INTO oauth_states (state, user_id, account_id, shop, app_id) VALUES ($1,$2,$3,$4,$5)`, [state, req.user?.id ?? null, linkableAccount(req) || app?.accountId || null, shop, app?.id ?? null]);
+    const url = buildInstallUrl(shop, state, app);
     return req.query.embedded === "1" ? breakOutOfIframe(res, url) : res.redirect(url);
   })
 );
@@ -262,10 +264,13 @@ r.get(
   "/shopify/callback",
   ah(async (req, res) => {
     const { shop, code, state } = req.query;
-    if (!isValidShopDomain(shop) || !verifyOAuthQuery(req.query)) return res.status(400).send("Invalid Shopify callback");
+    if (!isValidShopDomain(shop)) return res.status(400).send("Invalid Shopify callback");
+    const pendingState = await one(`SELECT app_id FROM oauth_states WHERE state=$1`, [String(state || "")]);
+    const app = pendingState?.app_id ? await shopifyAppFor({ id: pendingState.app_id }) : null;
+    if (!verifyOAuthQuery(req.query, app)) return res.status(400).send("Invalid Shopify callback");
     const st = await one(`DELETE FROM oauth_states WHERE state=$1 AND created_at > now() - interval '1 hour' RETURNING *`, [state]);
     if (!st || st.shop !== String(shop).toLowerCase()) return res.status(400).send("Install link expired. Please install the app again.");
-    const { accessToken, scope } = await exchangeCodeForToken(shop, code);
+    const { accessToken, scope } = await exchangeCodeForToken(shop, code, app);
 
     // Link right away when we know the account (started from the portal, or the installer is signed in).
     // A store that was linked before (e.g. reinstall after uninstall) returns to its own account.
@@ -273,7 +278,7 @@ r.get(
     const accountId = st.account_id || prior?.account_id || linkableAccount(req);
     if (accountId) {
       try {
-        const storeId = await linkShopifyStore({ accountId, shop, accessToken, scope });
+        const storeId = await linkShopifyStore({ accountId, shop, accessToken, scope, app });
         return res.redirect(`/stores/${storeId}?connected=1`);
       } catch (err) {
         if (err.status === 409) return res.status(409).send(err.message);
@@ -282,7 +287,7 @@ r.get(
     }
     // Otherwise park the install until someone signs in (or signs up) and claims it.
     const token = randomToken(24);
-    await query(`INSERT INTO pending_installs (token, shop, access_token_enc, scope) VALUES ($1,$2,$3,$4)`, [token, String(shop).toLowerCase(), encrypt(accessToken), scope]);
+    await query(`INSERT INTO pending_installs (token, shop, access_token_enc, scope, app_id) VALUES ($1,$2,$3,$4,$5)`, [token, String(shop).toLowerCase(), encrypt(accessToken), scope, app?.id ?? null]);
     res.redirect(`/claim-store?token=${encodeURIComponent(token)}`);
   })
 );
