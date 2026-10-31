@@ -21,8 +21,9 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      DATABASE_URL: postgres://wa:${POSTGRES_PASSWORD:-change-me}@db:5432/wa
-      DATABASE_SSL: "false"
+      # Set DATABASE_URL (+ DATABASE_SSL=true) in .env to use Neon/Supabase instead of the built-in database
+      DATABASE_URL: ${DATABASE_URL:-postgres://wa:${POSTGRES_PASSWORD:-change-me}@db:5432/wa}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
       GATEWAY_URL: ${GATEWAY_URL:-http://gateway:4000}
     ports: ["${WEB_PORT:-3000}:3000"]
     depends_on:
@@ -34,8 +35,9 @@ services:
     command: ["node", "src/worker.js"]
     env_file: .env
     environment:
-      DATABASE_URL: postgres://wa:${POSTGRES_PASSWORD:-change-me}@db:5432/wa
-      DATABASE_SSL: "false"
+      # Set DATABASE_URL (+ DATABASE_SSL=true) in .env to use Neon/Supabase instead of the built-in database
+      DATABASE_URL: ${DATABASE_URL:-postgres://wa:${POSTGRES_PASSWORD:-change-me}@db:5432/wa}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
       GATEWAY_URL: ${GATEWAY_URL:-http://gateway:4000}
     depends_on:
       db: { condition: service_healthy }
@@ -47,7 +49,8 @@ services:
     environment:
       GATEWAY_SECRET: ${GATEWAY_SECRET}
       APP_WEBHOOK_URL: http://web:3000/webhooks/gateway
-      DATABASE_URL: postgres://wa:${POSTGRES_PASSWORD:-change-me}@db:5432/wa
+      DATABASE_URL: ${DATABASE_URL:-postgres://wa:${POSTGRES_PASSWORD:-change-me}@db:5432/wa}
+      DATABASE_SSL: ${DATABASE_SSL:-false}
     depends_on:
       db: { condition: service_healthy }
 
