@@ -410,3 +410,58 @@ test("billing: plan limits block sending, Stripe webhook activates a subscriptio
   assert.equal(me.body.billing.active, false);
   await root.put("/api/admin/billing", { enabled: false, trialDays: 14, bankInstructions: "", contact: "" });
 });
+
+// ---------------------------------------------------------------- scanning, finance, Meta Ads
+
+test("scanning: return received, delivered and handed-to-courier by tracking or order number", async () => {
+  const o = await newOrder();
+  await customerSays("1");
+  const sh = (await owner.post(`/api/orders/${o.id}/book`, { force: true })).body;
+  const look = await owner.post("/api/scan", { code: sh.tracking_number.toLowerCase(), action: "lookup" });
+  assert.equal(look.body.result, "ok");
+  assert.equal(look.body.order.id, o.id, "tracking number lookup is case-insensitive");
+  const handed = await owner.post("/api/scan", { code: o.name, action: "dispatched" });
+  assert.equal(handed.body.result, "ok", JSON.stringify(handed.body));
+  assert.equal(handed.body.shipment.status, "in_transit");
+  const again = await owner.post("/api/scan", { code: o.name.replace("#", ""), action: "dispatched" });
+  assert.equal(again.body.result, "already", "order number without # works too");
+  const ret = await owner.post("/api/scan", { code: sh.tracking_number, action: "return_received" });
+  assert.equal(ret.body.result, "ok");
+  assert.equal(ret.body.shipment.status, "returned");
+  assert.ok(ret.body.shipment.return_received_at);
+  assert.equal((await q(`SELECT status FROM orders WHERE id=$1`, [o.id]))[0].status, "returned");
+  assert.equal((await owner.post("/api/scan", { code: sh.tracking_number, action: "return_received" })).body.result, "already");
+  assert.equal((await owner.post("/api/scan", { code: "NOPE-123", action: "delivered" })).body.result, "not_found");
+  const recent = await owner.get("/api/scan/recent");
+  assert.ok(recent.body.rows.length >= 5);
+  assert.equal(recent.body.summary.returns_today, 1);
+});
+
+test("Meta Ads: connect an ad account, daily spend syncs into Finance and Profit", async () => {
+  mock((u) => /graph\.facebook\.com\/v[\d.]+\/act_\d+\?/.test(u), () => ({ name: "Suite Ads", currency: "USD", account_status: 1 }));
+  const today = new Date().toISOString().slice(0, 10);
+  mock((u) => /graph\.facebook\.com\/v[\d.]+\/act_\d+\/insights\?/.test(u), () => ({
+    data: [{ date_start: today, spend: "10.50", impressions: "1000", clicks: "40", actions: [{ action_type: "purchase", value: "3" }], action_values: [{ action_type: "purchase", value: "30" }] }],
+    paging: {},
+  }));
+  await owner.post("/api/ad-spend", { storeId, day: today, channel: "meta", amount: 999 }); // hand-typed, replaced by sync
+  const bad = await owner.post(`/api/stores/${storeId}/ad-accounts`, { accountId: "abc", accessToken: "x".repeat(30) });
+  assert.equal(bad.status, 400);
+  const c = await owner.post(`/api/stores/${storeId}/ad-accounts`, { accountId: "act_123456789", accessToken: "EAAG" + "x".repeat(40), fxRate: 280 });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+  assert.equal(c.body.name, "Suite Ads");
+  await worker.drain();
+  const rows = await q(`SELECT channel, amount, clicks, purchases, source FROM ad_spend WHERE store_id=$1 AND day=$2 ORDER BY channel`, [storeId, today]);
+  assert.deepEqual(rows.map((r) => r.channel), ["meta:123456789"], "manual meta row replaced by the synced one");
+  assert.equal(Number(rows[0].amount), 2940, "converted with the exchange rate");
+  assert.equal(rows[0].purchases, 3);
+  const f = await owner.get(`/api/finance?storeId=${storeId}&days=7`);
+  assert.equal(f.status, 200, JSON.stringify(f.body));
+  assert.ok(f.body.ads.spend >= 2940);
+  assert.equal(f.body.ads.channels[0].synced, true);
+  assert.ok(f.body.losses.returnedCount >= 1);
+  assert.ok(typeof f.body.stock.atCost === "number");
+  assert.ok(f.body.series.length >= 7);
+  const p = await owner.get(`/api/profit?storeId=${storeId}&days=7`);
+  assert.ok(p.body.totals.ads >= 2940);
+});

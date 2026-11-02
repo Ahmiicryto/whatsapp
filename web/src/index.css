@@ -173,3 +173,11 @@ dialog.modal[open]:where(:not([data-closing])) {
 
 * { scrollbar-width: thin; scrollbar-color: var(--color-gray-300) transparent; }
 @media (prefers-color-scheme: dark) { * { scrollbar-color: var(--color-gray-700) transparent; } }
+
+/* Scanner aiming line */
+@keyframes scan-sweep {
+  0%, 100% { transform: translateY(-38px); opacity: 0.9; }
+  50% { transform: translateY(38px); opacity: 0.5; }
+}
+.scan-line { animation: scan-sweep 2.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .scan-line { animation: none; } }

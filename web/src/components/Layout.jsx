@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useSession } from "../lib/session.jsx";
 import { post } from "../lib/api.js";
@@ -6,6 +6,8 @@ import {
   BarChart3,
   Boxes,
   CircleHelp,
+  Landmark,
+  ScanLine,
   Code2,
   CreditCard,
   LifeBuoy,
@@ -29,7 +31,7 @@ import {
   UsersRound,
   Workflow,
 } from "lucide-react";
-import { cx, Select } from "./ui.jsx";
+import { cx, Loading, Select } from "./ui.jsx";
 import CommandPalette from "./CommandPalette.jsx";
 import NotificationBell from "./Notifications.jsx";
 import HelpDrawer from "./HelpDrawer.jsx";
@@ -40,6 +42,7 @@ const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
   { to: "/orders", label: "Orders", icon: Package },
   { to: "/shipments", label: "Shipments & COD", icon: Truck },
+  { to: "/scan", label: "Scan parcels", icon: ScanLine },
   { to: "/inbox", label: "Inbox", icon: MessageCircle },
   { to: "/customers", label: "Customers", icon: Users },
   { to: "/products", label: "Products", icon: Boxes },
@@ -50,6 +53,7 @@ const NAV = [
   { to: "/automations", label: "Automations", icon: Workflow, min: "admin" },
   { to: "/flows", label: "Automation rules", icon: GitBranch, min: "admin" },
   { section: "Insights" },
+  { to: "/finance", label: "Finance", icon: Landmark, min: "admin" },
   { to: "/profit", label: "Profit", icon: TrendingUp, min: "admin" },
   { to: "/fraud", label: "Fraud protection", icon: ShieldAlert, min: "agent" },
   { to: "/reports", label: "Reports", icon: BarChart3 },
@@ -246,6 +250,9 @@ export default function Layout() {
             <kbd className="hidden rounded-md bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500 sm:inline dark:bg-gray-800">Ctrl K</kbd>
           </button>
           <div className="flex items-center gap-1 lg:ml-auto">
+            <NavLink to="/scan" className="rounded-xl p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 lg:hidden dark:hover:bg-gray-800" aria-label="Scan parcels">
+              <ScanLine className="h-5 w-5" />
+            </NavLink>
             <button onClick={() => setHelp(true)} className="rounded-xl p-2 text-gray-500 transition hover:bg-gray-100 hover:text-gray-800 dark:hover:bg-gray-800" aria-label="How to use this page" title="How to use this page (?)">
               <CircleHelp className="h-5 w-5" />
             </button>
@@ -253,7 +260,9 @@ export default function Layout() {
           </div>
         </header>
         <main className="mx-auto w-full max-w-7xl flex-1 p-4 lg:p-8">
-          <Outlet />
+          <Suspense fallback={<Loading />}>
+            <Outlet />
+          </Suspense>
         </main>
         <CommandPalette open={searching} onClose={() => setSearching(false)} />
         {help && <HelpDrawer guide={guideForPath(location.pathname)} onClose={() => setHelp(false)} />}

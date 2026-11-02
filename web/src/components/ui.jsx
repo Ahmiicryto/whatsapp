@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { createContext, forwardRef, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { AlertCircle, CheckCircle2, X } from "lucide-react";
 
 const cx = (...c) => c.filter(Boolean).join(" ");
@@ -193,7 +193,7 @@ export function Field({ label, hint, children, className }) {
 const inputCls =
   "w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm shadow-xs transition placeholder:text-gray-400 hover:border-gray-300 focus:border-brand-500 focus:outline-none focus:ring-4 focus:ring-brand-500/15 dark:border-gray-700 dark:bg-gray-900 dark:hover:border-gray-600";
 
-export const Input = ({ className, ...p }) => <input className={cx(inputCls, className)} {...p} />;
+export const Input = forwardRef(({ className, ...p }, ref) => <input ref={ref} className={cx(inputCls, className)} {...p} />);
 export const Textarea = ({ className, ...p }) => <textarea className={cx(inputCls, "min-h-[90px]", className)} {...p} />;
 export function Select({ className, options, children, ...p }) {
   return (

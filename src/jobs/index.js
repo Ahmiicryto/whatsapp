@@ -33,6 +33,7 @@ import { sendUpsellOffer } from "../services/upsell.js";
 import { normalizeWebhookProduct } from "../shopify/products.js";
 import { emitEvent, deliverWebhook } from "../services/webhooksOut.js";
 import { pruneNotifications } from "../services/notifications.js";
+import { syncAdAccount, adAccountsToSync } from "../services/metaAds.js";
 
 async function activeStore(storeId) {
   const store = await getStoreContext(storeId);
@@ -461,6 +462,10 @@ export const handlers = {
     if (order && order.advance_status === "none") await requestAdvance(store, order, { amount: d.amount });
   }),
   "cron.shipments": () => queueShipmentSync(),
+  "ads.sync": (d) => syncAdAccount(d.adAccountId, { days: d.days || 3 }),
+  "cron.ads": async () => {
+    for (const a of await adAccountsToSync()) await enqueue("ads.sync", { storeId: a.store_id, adAccountId: a.id, days: 3 }, { singletonKey: `ads:${a.id}:sync`, maxAttempts: 2 });
+  },
   "review.ask": withStore((store, d) => sendReviewAsk(store, d.orderId)),
   "stock.restocked": withStore((store, d) => onRestock(store, d)),
   "upsell.offer": withStore((store, d) => sendUpsellOffer(store, d.orderId)),
@@ -482,4 +487,5 @@ export const cronEntries = [
   { name: "hourly", job: "cron.hourly", atMinute: 7 },
   { name: "daily", job: "cron.daily", everyMinutes: 1440 },
   { name: "shipments", job: "cron.shipments", everyMinutes: 120 },
+  { name: "ads", job: "cron.ads", everyMinutes: 360 },
 ];

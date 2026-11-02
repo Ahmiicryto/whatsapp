@@ -45,7 +45,7 @@ export default function NotificationBell({ dark }) {
 
   useEffect(() => {
     load();
-    const t = setInterval(load, 30000);
+    const t = setInterval(() => (!document.hidden || perm === "granted") && load(), 30000);
     return () => clearInterval(t);
   }, [perm]);
 

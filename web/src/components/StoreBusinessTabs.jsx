@@ -243,3 +243,81 @@ export function SalesTab({ storeId, s, canEdit }) {
     </div>
   );
 }
+
+/** Meta (Facebook/Instagram) ad accounts: spend is pulled every 6 hours into Profit and Finance. */
+export function AdsTab({ storeId, canEdit }) {
+  const list = useApi(`/stores/${storeId}/ad-accounts`);
+  const [f, setF] = useState({ accountId: "", accessToken: "", fxRate: 1 });
+  const [run, busy] = useAction();
+  return (
+    <div className="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
+      <Card title="Meta ad accounts">
+        {list.data?.length === 0 && <p className="text-sm text-gray-500">No ad account connected. Ad spend can still be typed on the Profit page.</p>}
+        <ul className="divide-y divide-gray-100 dark:divide-gray-800">
+          {list.data?.map((a) => (
+            <li key={a.id} className="space-y-2 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <div className="font-semibold">{a.name || `act_${a.account_id}`}</div>
+                  <div className="text-xs text-gray-500">
+                    act_{a.account_id} · {a.currency} · {a.last_synced_at ? `synced ${new Date(a.last_synced_at).toLocaleString()}` : "not synced yet"}
+                  </div>
+                  {a.last_error && <div className="text-xs text-red-600">{a.last_error}</div>}
+                </div>
+                {canEdit && (
+                  <div className="flex gap-1">
+                    <Button size="sm" variant="secondary" loading={busy} onClick={() => run(() => post(`/stores/${storeId}/ad-accounts/${a.id}/sync`, { days: 30 }), "Synced the last 30 days").then(list.reload)}>
+                      Sync now
+                    </Button>
+                    <Button size="sm" variant="ghost" aria-label="Remove" onClick={() => confirm("Disconnect this ad account? Synced spend stays.") && run(() => del(`/stores/${storeId}/ad-accounts/${a.id}`), "Disconnected").then(list.reload)}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+              {canEdit && (
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="text-gray-500">1 {a.currency} =</span>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0.0001"
+                    defaultValue={a.fx_rate}
+                    className="w-28"
+                    onBlur={(e) => Number(e.target.value) !== a.fx_rate && run(() => put(`/stores/${storeId}/ad-accounts/${a.id}`, { fxRate: Number(e.target.value) }), "Exchange rate saved, re-syncing").then(list.reload)}
+                    aria-label="Exchange rate"
+                  />
+                  <span className="text-gray-500">in your store currency</span>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+        {canEdit && (
+          <div className="mt-4 space-y-3 border-t border-gray-100 pt-4 dark:border-gray-800">
+            <Field label="Ad account ID" hint="Ads Manager → the number after act_ (e.g. 123456789012345)">
+              <Input value={f.accountId} onChange={(e) => setF({ ...f, accountId: e.target.value })} placeholder="act_123456789012345" />
+            </Field>
+            <Field label="Access token" hint="Business Settings → System users → Generate token with ads_read (never expires)">
+              <Input type="password" value={f.accessToken} onChange={(e) => setF({ ...f, accessToken: e.target.value })} autoComplete="off" />
+            </Field>
+            <Field label="Exchange rate" hint="If the ad account is in USD and the store in PKR, enter e.g. 280. Leave 1 if both are the same currency.">
+              <Input type="number" step="0.01" value={f.fxRate} onChange={(e) => setF({ ...f, fxRate: Number(e.target.value) })} />
+            </Field>
+            <Button loading={busy} disabled={!f.accountId || !f.accessToken} onClick={() => run(() => post(`/stores/${storeId}/ad-accounts`, f), "Connected. Importing the last 60 days…").then((r) => r && (setF({ accountId: "", accessToken: "", fxRate: 1 }), list.reload()))}>
+              Connect Meta ad account
+            </Button>
+          </div>
+        )}
+      </Card>
+      <Card title="How it works">
+        <ol className="list-decimal space-y-2 pl-5 text-sm text-gray-600 dark:text-gray-300">
+          <li>Daily spend, clicks, purchases and purchase value are pulled from the Meta Marketing API every 6 hours (the last 60 days on first connect).</li>
+          <li>Spend appears in Profit (real profit after ads) and Finance, converted with your exchange rate.</li>
+          <li>Synced days replace any spend you typed by hand for "meta", so nothing is counted twice.</li>
+          <li>Orders that came from Click-to-WhatsApp ads are also marked on each order.</li>
+        </ol>
+      </Card>
+    </div>
+  );
+}

@@ -7,7 +7,7 @@ import { dateTime } from "../lib/format.js";
 import { Send, Smartphone, Unlink } from "lucide-react";
 import { Card, Badge, Button, Empty, Field, Input, Select, Textarea, Toggle, Tabs, Table, Loading, ErrorBox, useAction } from "../components/ui.jsx";
 import WhatsAppConnect, { ProviderBadge, unlinkQr } from "../components/WhatsAppConnect.jsx";
-import { CouriersTab, SalesTab } from "../components/StoreBusinessTabs.jsx";
+import { AdsTab, CouriersTab, SalesTab } from "../components/StoreBusinessTabs.jsx";
 
 function CopyField({ label, value }) {
   return (
@@ -208,6 +208,7 @@ export default function StoreSettings() {
           { value: "whatsapp", label: "WhatsApp" },
           { value: "couriers", label: "Couriers" },
           { value: "sales", label: "Sales & delivery" },
+          { value: "ads", label: "Meta Ads" },
           { value: "ai", label: "AI & keys" },
           { value: "tags", label: "Shopify tags" },
           { value: "bundles", label: "Bundles" },
@@ -272,6 +273,7 @@ export default function StoreSettings() {
 
       {tab === "whatsapp" && <WhatsAppTab data={data} reload={s.reload} />}
       {tab === "couriers" && <CouriersTab storeId={id} s={s} canEdit={can("admin")} />}
+      {tab === "ads" && <AdsTab storeId={id} canEdit={can("admin")} />}
       {tab === "sales" && <SalesTab storeId={id} s={s} canEdit={can("admin")} />}
       {tab === "ai" && <AiTab id={id} data={data} s={s} reload={s.reload} />}
 

@@ -55,8 +55,14 @@ export function useApi(path, { interval } = {}) {
   useEffect(() => {
     load();
     if (!interval) return undefined;
-    const t = setInterval(load, interval);
-    return () => clearInterval(t);
+    // Don't poll while the tab is in the background; refresh as soon as it's visible again.
+    const t = setInterval(() => !document.hidden && load(), interval);
+    const onVisible = () => !document.hidden && load();
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [load, interval]);
 
   return { data, error, loading, reload: load, setData };

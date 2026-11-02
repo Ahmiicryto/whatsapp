@@ -63,6 +63,32 @@ export const GUIDES = [
     faq: [{ q: "My courier isn't listed", a: "Add it as a Custom courier (any courier with an API) or a Manual courier (type or upload tracking numbers yourself)." }],
   },
   {
+    key: "scan",
+    title: "Scan parcels",
+    route: /^\/scan/,
+    summary: "Use your phone camera (or a USB barcode scanner) to update parcels in one scan.",
+    steps: [
+      "Pick what you're doing: Return received, Delivered, Handed to courier, or Look up.",
+      "Tap Start camera and allow camera access. Point it at the courier's barcode or the order number QR. It beeps and vibrates when done.",
+      "No camera? Click the box below and scan with a USB/Bluetooth scanner, or type the tracking number or order number and press Enter.",
+      "Return received marks the parcel returned (if the courier hasn't yet) and records that it's back in your hands. Then restock the items in Shopify.",
+      "Every scan is saved with who scanned it, under Recent scans.",
+    ],
+    tips: ["Open the app on your phone and use the scan icon at the top. It works in Chrome on Android and Safari on iPhone.", "Scanning the same parcel twice within a few seconds is ignored."],
+  },
+  {
+    key: "finance",
+    title: "Finance",
+    route: /^\/finance/,
+    summary: "All your money in one place: cash received, money couriers owe you, cash on the road, stock value, ad spend and losses.",
+    steps: [
+      "Cash received adds up COD the couriers paid you, advances and prepaid orders in the period.",
+      "Couriers owe you = delivered parcels whose cash you haven't received. The courier table shows the oldest unpaid parcel so you can chase it.",
+      "Stock value = units in stock × cost per item (and × selling price). Set missing costs on the Products page.",
+      "Ad spend comes from your connected Meta ad account (Store → Meta Ads), or what you typed on the Profit page.",
+    ],
+  },
+  {
     key: "inbox",
     title: "Inbox",
     route: /^\/inbox/,

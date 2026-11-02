@@ -26,6 +26,7 @@ import workspaceRoutes from "./api/routes/workspace.js";
 import logisticsRoutes from "./api/routes/logistics.js";
 import growthRoutes from "./api/routes/growth.js";
 import billingRoutes from "./api/routes/billing.js";
+import moneyRoutes from "./api/routes/money.js";
 import publicApi from "./api/v1.js";
 import { isAuthorizedCron, runTick } from "./serverless.js";
 
@@ -111,14 +112,17 @@ export function createApp() {
   api.use(logisticsRoutes);
   api.use(growthRoutes);
   api.use(billingRoutes);
+  api.use(moneyRoutes);
   api.use("/admin", adminRoutes);
   app.use("/api", api);
   app.use("/api", (_req, _res, next) => next(new HttpError(404, "API route not found")));
 
   // React portal
   if (fs.existsSync(webDist)) {
+    // Vite file names contain a content hash, so they can be cached forever; index.html is always revalidated.
+    app.use("/assets", express.static(path.join(webDist, "assets"), { index: false, immutable: true, maxAge: "1y" }));
     app.use(express.static(webDist, { index: false, maxAge: "1h" }));
-    app.get("*", (_req, res) => res.sendFile(path.join(webDist, "index.html")));
+    app.get("*", (_req, res) => res.set("Cache-Control", "no-cache").sendFile(path.join(webDist, "index.html")));
   } else {
     app.get("/", (_req, res) => res.send("API is running. Build the portal with `npm run build`."));
   }

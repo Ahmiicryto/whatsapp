@@ -28,6 +28,9 @@ One platform that links many Shopify stores to WhatsApp and runs them on Render.
   - One-click, bulk or automatic booking, with Shopify fulfillment and tracking sync.
   - Failed-delivery recovery on WhatsApp.
   - COD reconciliation with courier CSV import.
+- **Parcel scanning**: scan courier barcodes or order QR codes with a phone camera (or a USB scanner) to mark returns received, delivered or handed to the courier, with a log of every scan.
+- **Finance**: cash received, money couriers owe you (with the oldest unpaid parcel), cash on the road, advances, stock value at cost and retail, ad spend and losses in one page.
+- **Meta Ads sync**: connect a Meta ad account (System User token with `ads_read`) and daily spend, clicks and purchases are pulled every 6 hours into Profit and Finance, converted with your exchange rate.
 - **Fraud protection**:
   - Each number's delivery record across every store on the platform.
   - Blocklist, with automatic blocking after repeated returns.

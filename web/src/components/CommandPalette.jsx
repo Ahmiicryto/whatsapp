@@ -13,6 +13,8 @@ export const PAGES = [
   { title: "Orders", link: "/orders", keywords: "orders cod confirm" },
   { title: "Orders needing attention", link: "/orders?filter=attention", keywords: "risk problem attention" },
   { title: "Shipments & COD", link: "/shipments", keywords: "courier tracking cod cash settlement postex leopards trax" },
+  { title: "Scan parcels", link: "/scan", keywords: "scan barcode qr camera return received delivered dispatch" },
+  { title: "Finance", link: "/finance", keywords: "money cash collection stock value ads amount receivable" },
   { title: "Inbox", link: "/inbox", keywords: "chat messages whatsapp" },
   { title: "Customers", link: "/customers", keywords: "people buyers" },
   { title: "Products", link: "/products", keywords: "catalog images stock" },
